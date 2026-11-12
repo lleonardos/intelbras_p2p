@@ -1,0 +1,5 @@
+profile.json
+options.json
+config.json
+*.private.*
+__pycache__/

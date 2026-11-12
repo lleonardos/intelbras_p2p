@@ -1,0 +1,28 @@
+name: Intelbras P2P
+version: "1.0.0"
+slug: intelbras_p2p
+description: Conecte gravadores Intelbras Cloud por P2P e acesse os canais por RTSP.
+arch: [amd64]
+startup: services
+boot: auto
+init: false
+ports:
+  8554/tcp: 18554
+ports_description:
+  8554/tcp: Vídeo RTSP para o Frigate e outros clientes
+options:
+  usuario_rtsp: frigate
+  senha_rtsp: ""
+  gravadores: []
+schema:
+  usuario_rtsp: str
+  senha_rtsp: password
+  gravadores:
+    - nome: str
+      serial: str
+      usuario: str
+      senha: password
+      canais: int(1,64)
+map:
+  - type: addon_config
+    read_only: true
