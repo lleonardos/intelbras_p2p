@@ -6,4 +6,4 @@ Abra o canal principal pelo endereço `rtsp://USUARIO:SENHA@IP_DO_HOME_ASSISTANT
 
 O canal principal 1 mantém a conexão de cada gravador ativa. Os demais abrem quando um cliente pede vídeo. A implementação usa o RTSP do gravador na porta 554 e foi testada com os modelos MHDX 3116-C e MHDX 1116. Requer Home Assistant com Supervisor em Intel ou AMD de 64 bits.
 
-Antes de iniciar, copie seu profile.json do SDK para a pasta deste add-on em /addon_configs/ no Home Assistant. Dentro do container o arquivo será lido em /config/profile.json. Depois, cadastre seus DVRs na aba Configuração.
+Antes de iniciar, crie um profile.json na pasta deste add-on em /addon_configs/ no Home Assistant com os campos `server_key` e `password` do SDK. Dentro do container o arquivo será lido em /config/profile.json. Os campos `server`, `server_port` e `remote_ip` são opcionais e, quando ausentes, usam os valores padrão da Intelbras Cloud. Depois, cadastre seus DVRs na aba Configuração.

@@ -10,6 +10,12 @@ static const char *required(const char *name) {
     if (!v || !*v) { fprintf(stderr, "Missing setting: %s\n", name); exit(2); }
     return v;
 }
+static unsigned short port(const char *name) {
+    char *end;
+    long v = strtol(required(name), &end, 10);
+    if (*end || v < 1 || v > 65535) { fprintf(stderr, "Invalid port: %s\n", name); exit(2); }
+    return (unsigned short)v;
+}
 int main(int argc, char **argv) {
     const char *directory = getenv("T2U_DLL_DIR");
     if (!directory) directory = "Z:\\run\\bridge\\sdk";
@@ -25,10 +31,16 @@ int main(int argc, char **argv) {
         puts("DLL loaded; required exports present. No network initialization performed.");
         return 0;
     }
-    init(required("T2U_SERVER"), (unsigned short)atoi(required("T2U_SERVER_PORT")), required("T2U_SERVER_KEY"));
-    int result = add(required("T2U_UUID"), getenv("T2U_PASSWORD") ? getenv("T2U_PASSWORD") : "", required("T2U_REMOTE_IP"), (unsigned short)atoi(required("T2U_REMOTE_PORT")), (unsigned short)atoi(required("T2U_LOCAL_PORT")));
+    /* Validate every setting before the SDK touches the network. */
+    const char *server = required("T2U_SERVER"), *key = required("T2U_SERVER_KEY");
+    const char *uuid = required("T2U_UUID"), *remote_ip = required("T2U_REMOTE_IP");
+    const char *password = getenv("T2U_PASSWORD");
+    unsigned short server_port = port("T2U_SERVER_PORT"), remote_port = port("T2U_REMOTE_PORT");
+    unsigned short local_port = port("T2U_LOCAL_PORT");
+    init(server, server_port, key);
+    int result = add(uuid, password ? password : "", remote_ip, remote_port, local_port);
     printf("t2u_add_port_v3 returned %d; stream readiness is checked separately\n", result);
     fflush(stdout);
     /* Return-code semantics are not yet established. Do not label this connected. */
-    for (;;) Sleep(1000);
+    for (;;) Sleep(INFINITE);
 }

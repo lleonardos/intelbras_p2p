@@ -3,3 +3,5 @@ options.json
 config.json
 *.private.*
 __pycache__/
+/.env
+.pytest_cache/
