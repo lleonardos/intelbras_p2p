@@ -9,14 +9,15 @@ import main as bridge
 OPTIONS_FILE = Path('/data/options.json')
 PROFILE_FILE = Path('/config/profile.json')
 FIRST_LOCAL_PORT = 15541
-# Intelbras Cloud relay settings, the same for every recorder. A profile.json in the add-on config
-# folder overrides any of them and must supply the two SDK secrets that are not shipped here.
+# Intelbras Cloud relay settings, the same for every recorder. The two SDK secrets are not shipped
+# here: they come from the add-on options, or from an optional profile.json in the add-on config
+# folder, which can also override the defaults below.
 DEFAULT_PROFILE = {
     'server': 'intelbrasp2p.com.br',
     'server_port': 1250,
     'remote_ip': '127.0.0.1',
 }
-PROFILE_SECRETS = ('server_key', 'password')
+PROFILE_SECRETS = {'server_key': 'chave_p2p', 'password': 'senha_p2p'}  # profile key -> add-on option
 NAME_RE = re.compile(r'[a-z0-9_-]+')
 
 
@@ -59,12 +60,16 @@ def load():
         raise ValueError('O profile.json não é um JSON válido.') from None
     if not isinstance(override, dict):
         raise ValueError('O profile.json deve conter um objeto JSON.')
+    options = json.loads(OPTIONS_FILE.read_text())
     profile = {**DEFAULT_PROFILE, **override}
-    missing = [key for key in PROFILE_SECRETS if not profile.get(key)]
+    for key, option in PROFILE_SECRETS.items():
+        value = options.get(option)
+        if isinstance(value, str) and value.strip():
+            profile[key] = value.strip()
+    missing = [option for key, option in PROFILE_SECRETS.items() if not profile.get(key)]
     if missing:
-        raise ValueError('Faltam no profile.json (pasta deste add-on em /addon_configs/): '
-                         + ', '.join(missing) + '.')
-    return configure(json.loads(OPTIONS_FILE.read_text()), profile)
+        raise ValueError('Preencha na aba Configuração: ' + ', '.join(missing) + '.')
+    return configure(options, profile)
 
 
 def drop_privileges(user='bridge'):

@@ -149,8 +149,15 @@ def test_load_defaults_and_overrides(tmp_path, monkeypatch):
     monkeypatch.setattr(start, 'PROFILE_FILE', tmp_path / 'profile.json')
     monkeypatch.setattr(start, 'OPTIONS_FILE', tmp_path / 'options.json')
     (tmp_path / 'options.json').write_text(json.dumps(options()))
-    with pytest.raises(ValueError, match='server_key, password'):
+    with pytest.raises(ValueError, match='chave_p2p, senha_p2p'):
         start.load()
+    (tmp_path / 'options.json').write_text(json.dumps(options(chave_p2p=' ui-key ', senha_p2p='ui-pass')))
+    p2p = start.load()['devices'][0]['p2p']
+    assert (p2p['server_key'], p2p['password']) == ('ui-key', 'ui-pass')
+    (tmp_path / 'profile.json').write_text('{"server_key": "file-key", "password": "file-pass"}')
+    assert start.load()['devices'][0]['p2p']['server_key'] == 'ui-key'  # the options win over the file
+    (tmp_path / 'options.json').write_text(json.dumps(options(chave_p2p='', senha_p2p='')))
+    assert start.load()['devices'][0]['p2p']['server_key'] == 'file-key'
     (tmp_path / 'profile.json').write_text('{"server_key": "k", "password": "p", "server_port": 9}')
     config = start.load()
     p2p = config['devices'][0]['p2p']
