@@ -5,6 +5,13 @@
 #include <string.h>
 typedef void (__cdecl *init_fn)(const char *, unsigned short, const char *);
 typedef int (__cdecl *add_fn)(const char *, const char *, const char *, unsigned short, unsigned short);
+/* Status calls: signatures and return codes observed against real recorders, not documented.
+   t2u_status: 0 connecting, 1 connected to the server, -2 server key refused.
+   t2u_port_status: 0 connecting, 1 tunnel connected, -4 device offline or unknown, -5 password refused.
+   t2u_query: 1 device online, 0 offline or unknown, -1 no answer from the server. */
+typedef int (__cdecl *status_fn)(void);
+typedef int (__cdecl *port_status_fn)(unsigned short, void *);
+typedef int (__cdecl *query_fn)(const char *, void *);
 static const char *required(const char *name) {
     const char *v = getenv(name);
     if (!v || !*v) { fprintf(stderr, "Missing setting: %s\n", name); exit(2); }
@@ -41,6 +48,31 @@ int main(int argc, char **argv) {
     int result = add(uuid, password ? password : "", remote_ip, remote_port, local_port);
     printf("t2u_add_port_v3 returned %d; stream readiness is checked separately\n", result);
     fflush(stdout);
-    /* Return-code semantics are not yet established. Do not label this connected. */
-    for (;;) Sleep(INFINITE);
+    /* Report "server port query" codes to a file whenever they change; the bridge turns them into
+       log messages. Only numbers are written, never identifiers. */
+    status_fn status = (status_fn)GetProcAddress(dll, "t2u_status");
+    port_status_fn port_status = (port_status_fn)GetProcAddress(dll, "t2u_port_status");
+    query_fn query = (query_fn)GetProcAddress(dll, "t2u_query");
+    const char *status_file = getenv("T2U_STATUS_FILE");
+    if (!status || !port_status || !query || !status_file) for (;;) Sleep(INFINITE);
+    int last[3] = {-99, -99, -99};
+    for (;;) {
+        /* The SDK fills an undocumented structure here (85 bytes observed); give it ample room. */
+        unsigned char scratch[512];
+        memset(scratch, 0, sizeof scratch);
+        int now[3] = {status(), port_status(local_port, scratch), 1};
+        if (now[1] != 1) {
+            memset(scratch, 0, sizeof scratch);
+            now[2] = query(uuid, scratch);
+        }
+        if (memcmp(now, last, sizeof now) != 0) {
+            FILE *out = fopen(status_file, "w");
+            if (out) {
+                fprintf(out, "%d %d %d\n", now[0], now[1], now[2]);
+                fclose(out);
+                memcpy(last, now, sizeof now);
+            }
+        }
+        Sleep(1000);
+    }
 }

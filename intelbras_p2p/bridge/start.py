@@ -64,7 +64,7 @@ def configure(options, profile):
                 streams.append({'name': f'{name}_ch{channel}{suffix}',
                                 'path': f'/cam/realmonitor?channel={channel}&subtype={subtype}',
                                 'on_demand': channel != channels[0] or subtype != 0})
-        devices.append({'mode': 'p2p', 'username': recorder['usuario'], 'password': recorder['senha'],
+        devices.append({'mode': 'p2p', 'name': name, 'username': recorder['usuario'], 'password': recorder['senha'],
                         'p2p': {**profile, 'uuid': recorder['serial'].strip(), 'remote_port': 554,
                                 'local_port': FIRST_LOCAL_PORT + index}, 'streams': streams})
     return {'output_auth': {'username': options['usuario_rtsp'], 'password': options['senha_rtsp']},

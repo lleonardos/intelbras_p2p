@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.6
+
+- O log passa a dizer o estado do túnel de cada gravador: conectando, conectado, gravador offline ou serial incorreto, chave ou senha P2P recusada, servidor P2P sem resposta, e túnel conectado mas sem vídeo.
+
 ## 1.0.5
 
 - A página "Abrir interface web" mostra uma miniatura de cada canal, atualizada ao clicar.

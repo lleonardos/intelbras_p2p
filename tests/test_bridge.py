@@ -273,3 +273,44 @@ def test_urls_page_script_parses(tmp_path):
     script = tmp_path / 'page.js'
     script.write_text(html.split('<script>', 1)[1].split('</script>', 1)[0], encoding='utf-8')
     assert subprocess.run(['node', '--check', str(script)]).returncode == 0
+
+
+@pytest.mark.parametrize('codes, expected', [
+    ('0 0 1', 'conectando'),
+    ('1 0 1', 'conectando'),
+    ('1 1 1', 'túnel conectado'),
+    ('-2 0 1', 'chave_p2p'),
+    ('1 -5 1', 'senha_p2p'),
+    ('1 -4 0', 'offline ou serial'),
+    ('0 0 0', 'offline ou serial'),
+    ('0 0 -1', 'servidor P2P sem resposta'),
+    ('1 -9 1', 'códigos 1/-9'),
+])
+def test_tunnel_state_messages(codes, expected):
+    assert expected in bridge.tunnel_state(codes + '\n')
+
+
+def test_tunnel_state_ignores_partial_file():
+    assert bridge.tunnel_state('') is None and bridge.tunnel_state('1 x') is None
+
+
+def test_tunnel_log_prints_changes_and_missing_video(tmp_path, capsys):
+    status = tmp_path / 'tunnel-0.status'
+    log = bridge.TunnelLog('vila', status, {'vila_ch1'})
+    log.update(None, 0)  # no file yet
+    status.write_text('0 0 1\n')
+    log.update(None, 1)
+    log.update(None, 2)  # unchanged: nothing printed
+    status.write_text('1 1 1\n')
+    log.update({'vila_ch1'}, 10)
+    log.update({'vila_ch1'}, 10 + bridge.VIDEO_GRACE_SECONDS)
+    log.update(set(), 50)
+    status.write_text('1 -4 0\n')
+    log.update({'vila_ch1'}, 60)
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0] == 'Gravador vila: conectando.' and lines[1] == 'Gravador vila: túnel conectado.'
+    assert 'mas sem vídeo' in lines[2] and lines[3] == lines[1] and 'offline' in lines[4] and len(lines) == 5
+
+
+def test_configure_names_devices():
+    assert start.configure(options(), PROFILE)['devices'][0]['name'] == 'vila'

@@ -24,6 +24,9 @@ READY_HEALTH_SECONDS = 10
 # Home Assistant kills an add-on 10 s after SIGTERM; stay well inside that budget.
 # Nothing here keeps state worth waiting for, so a child that stalls is simply killed.
 SHUTDOWN_SECONDS = 3
+# A connected tunnel normally delivers video within a few seconds; after this, the recorder login is suspect.
+VIDEO_GRACE_SECONDS = 25
+TUNNEL_CONNECTED = 'túnel conectado'
 
 HOST_RE = re.compile(r'[A-Za-z0-9.-]+:[0-9]+')
 NAME_RE = re.compile(r'[A-Za-z0-9_-]+')
@@ -88,8 +91,11 @@ def required_paths(paths):
     return {name for name, settings in paths.items() if not settings.get('sourceOnDemand')}
 
 
-def healthy(required=None):
-    """True when every always-on path is ready. Reads the saved config when `required` is omitted."""
+def unready(required=None):
+    """Always-on paths that are not ready, or None when mediamtx cannot be asked.
+
+    Reads the saved config when `required` is omitted.
+    """
     try:
         if required is None:
             required = required_paths(json.loads(MEDIA_CONFIG.read_text())['paths'])
@@ -102,9 +108,65 @@ def healthy(required=None):
             page += 1
             if page >= data.get('pageCount', 1):
                 break
-        return not missing
+        return missing
     except (OSError, ValueError, KeyError, TypeError):
-        return False
+        return None
+
+
+def healthy(required=None):
+    """True when every always-on path is ready."""
+    return unready(required) == set()
+
+
+def tunnel_state(text):
+    """Log message for the "server port query" codes written by tunnel.exe, or None when unreadable.
+
+    The meaning of each code was observed against real recorders; see tunnel.c.
+    """
+    try:
+        server, port, query = (int(value) for value in text.split())
+    except ValueError:
+        return None
+    if server == -2:
+        return 'chave do servidor P2P recusada; confira chave_p2p'
+    if port == 1:
+        return TUNNEL_CONNECTED
+    if port == -5:
+        return 'senha P2P recusada; confira senha_p2p'
+    if port == -4 or query == 0:
+        return 'gravador offline ou serial incorreto'
+    if query == -1:
+        return 'servidor P2P sem resposta; confira a internet do Home Assistant'
+    if server < 0 or port < 0:
+        return f'falha no túnel (códigos {server}/{port})'
+    return 'conectando'
+
+
+class TunnelLog:
+    """Prints one line per recorder whenever its tunnel state changes."""
+
+    def __init__(self, label, status_file, streams):
+        self.label, self.status_file, self.streams = label, status_file, streams
+        self.message = self.connected_at = None
+
+    def update(self, missing, now):
+        try:
+            message = tunnel_state(self.status_file.read_text())
+        except OSError:
+            return
+        if message is None:  # caught the file while it was being rewritten
+            return
+        if message != TUNNEL_CONNECTED:
+            self.connected_at = None
+        else:
+            if self.connected_at is None:
+                self.connected_at = now
+            no_video = missing is None or self.streams & missing
+            if no_video and now - self.connected_at >= VIDEO_GRACE_SECONDS:
+                message += ', mas sem vídeo; confira o usuário, a senha e os canais do gravador'
+        if message != self.message:
+            print(f'Gravador {self.label}: {message}.', flush=True)
+            self.message = message
 
 
 def wine_prefix_ready():
@@ -150,6 +212,14 @@ def main(config=None):
             shutil.copyfile(library, sdk / library.name)
     MEDIA_CONFIG.write_text(json.dumps(media))
     required = required_paths(media['paths'])
+    logs = []
+    for index, device in enumerate(d for d in config['devices'] if d.get('mode', 'p2p') == 'p2p'):
+        status_file = RUN_DIR / f'tunnel-{index}.status'
+        status_file.unlink(missing_ok=True)
+        # tunnel.exe runs under Wine, which sees the Linux filesystem as drive Z:.
+        tunnels[index]['T2U_STATUS_FILE'] = 'Z:' + str(status_file).replace('/', '\\')
+        streams = {stream['name'] for stream in device['streams']} & required
+        logs.append(TunnelLog(device.get('name') or str(index + 1), status_file, streams))
     children = []
     stopping = threading.Event()
 
@@ -185,6 +255,7 @@ def main(config=None):
         children.append(subprocess.Popen(['mediamtx', str(MEDIA_CONFIG)], **quiet))
         print(f'Bridge started: {len(media["paths"])} configured streams; awaiting video.', flush=True)
         previous = None
+        missing = None
         next_health = 0.0
         while not stopping.is_set():
             exited = [(i, p.returncode) for i, p in enumerate(children) if p.poll() is not None]
@@ -193,11 +264,14 @@ def main(config=None):
                 return 1
             now = time.monotonic()
             if now >= next_health:
-                ready = healthy(required)
+                missing = unready(required)
+                ready = missing == set()
                 if ready != previous:
                     print('All streams ready.' if ready else 'Waiting for one or more streams.', flush=True)
                     previous = ready
                 next_health = now + (READY_HEALTH_SECONDS if ready else POLL_SECONDS)
+            for log in logs:
+                log.update(missing, now)
             # Unlike time.sleep, this returns as soon as a stop signal arrives.
             stopping.wait(POLL_SECONDS)
     finally:
