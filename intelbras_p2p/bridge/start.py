@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 import main as bridge
+import urls
 
 OPTIONS_FILE = Path('/data/options.json')
 PROFILE_FILE = Path('/config/profile.json')
@@ -90,4 +91,9 @@ if __name__ == '__main__':
         print('Verifique a configuração do Intelbras P2P.', str(exc) if type(exc) is ValueError else '', flush=True)
         sys.exit(2)
     drop_privileges()
+    try:
+        urls.serve(settings)
+        print('Endereços RTSP: clique em "Abrir interface web" na página do add-on.', flush=True)
+    except OSError:
+        print('A página de endereços RTSP não pôde ser iniciada; o vídeo não é afetado.', flush=True)
     sys.exit(bridge.main(settings))

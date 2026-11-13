@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.4
+
+- Nova página "Abrir interface web" com os endereços RTSP de todos os canais, prontos para copiar.
+- Documentação sem nomes de exemplo fixos: os endereços usam o nome dado a cada gravador.
+
 ## 1.0.3
 
 - A chave e a senha do servidor P2P da Intelbras Cloud já vêm embutidas; `chave_p2p` e `senha_p2p` tornam-se opcionais e servem apenas para sobrescrever os valores padrão.

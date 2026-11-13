@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'intelbras_p2p' / '
 
 import main as bridge  # noqa: E402
 import start  # noqa: E402
+import urls  # noqa: E402
 
 PROFILE = {'server': 'p2p.example.test', 'server_port': 8800, 'server_key': 'k', 'remote_ip': '127.0.0.1'}
 
@@ -180,3 +181,43 @@ def test_wine_prefix_ready(tmp_path, monkeypatch):
     assert bridge.wine_prefix_ready() is False
     (tmp_path / 'system.reg').write_text('')
     assert bridge.wine_prefix_ready() is True
+
+
+def test_urls_page_lists_streams_without_secrets():
+    config = start.configure(options(usuario_rtsp='a</script>', gravadores=[recorder(), recorder(nome='casa')]),
+                             PROFILE)
+    html = urls.page(config, 18554).decode()
+    data = json.loads(html.split('const data = ', 1)[1].split(';\n', 1)[0])
+    assert data == {'user': 'a</script>', 'port': 18554, 'recorders': [
+        ['vila_ch1', 'vila_ch1_sub', 'vila_ch2', 'vila_ch2_sub'],
+        ['casa_ch1', 'casa_ch1_sub', 'casa_ch2', 'casa_ch2_sub']]}
+    assert html.count('</script>') == 1
+    for secret in ('out-pass', 'p@ss', 'ABC123', 'p2p.example.test'):
+        assert secret not in html
+
+
+def test_urls_external_port(monkeypatch):
+    monkeypatch.setenv('SUPERVISOR_TOKEN', 't')
+    reply = {'data': {'network': {'8554/tcp': 28554}}}
+    monkeypatch.setattr(urls.urllib.request, 'urlopen', lambda request, timeout: io.BytesIO(json.dumps(reply).encode()))
+    assert urls.external_port() == 28554
+    reply['data']['network']['8554/tcp'] = None  # port disabled in the Network section
+    assert urls.external_port() == urls.DEFAULT_EXTERNAL_PORT
+    monkeypatch.delenv('SUPERVISOR_TOKEN')
+    assert urls.external_port() == urls.DEFAULT_EXTERNAL_PORT
+
+
+def test_urls_server_only_answers_ingress(monkeypatch):
+    config = start.configure(options(), PROFILE)
+    monkeypatch.setattr(urls, 'external_port', lambda: 18554)
+    server = urls.serve(config, port=0)
+    address = f'http://127.0.0.1:{server.server_address[1]}/any/prefix'
+    try:
+        with bridge.urllib.request.urlopen(address, timeout=3) as response:
+            assert response.status == 200 and b'vila_ch1_sub' in response.read()
+        monkeypatch.setattr(urls, 'ALLOWED_PEERS', ('172.30.32.2',))
+        with pytest.raises(bridge.urllib.error.HTTPError, match='403'):
+            bridge.urllib.request.urlopen(address, timeout=3)
+    finally:
+        server.shutdown()
+        server.server_close()
