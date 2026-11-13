@@ -19,7 +19,7 @@ PROFILE = {'server': 'p2p.example.test', 'server_port': 8800, 'server_key': 'k',
 
 def options(**overrides):
     base = {'usuario_rtsp': 'frigate', 'senha_rtsp': 'out-pass', 'gravadores': [
-        {'nome': 'Vila', 'serial': ' ABC123 ', 'usuario': 'admin', 'senha': 'p@ss:/#', 'canais': 2}]}
+        {'nome': 'Sitio', 'serial': ' ABC123 ', 'usuario': 'admin', 'senha': 'p@ss:/#', 'canais': 2}]}
     base.update(overrides)
     return base
 
@@ -33,7 +33,7 @@ def recorder(**overrides):
 def test_configure_generates_streams_and_ports():
     config = start.configure(options(gravadores=[recorder(), recorder(nome='casa')]), PROFILE)
     first, second = config['devices']
-    assert [s['name'] for s in first['streams']] == ['vila_ch1', 'vila_ch1_sub', 'vila_ch2', 'vila_ch2_sub']
+    assert [s['name'] for s in first['streams']] == ['sitio_ch1', 'sitio_ch1_sub', 'sitio_ch2', 'sitio_ch2_sub']
     assert [s['on_demand'] for s in first['streams']] == [False, True, True, True]
     assert first['streams'][1]['path'] == '/cam/realmonitor?channel=1&subtype=1'
     assert first['p2p']['uuid'] == 'ABC123'
@@ -46,7 +46,7 @@ def test_configure_generates_streams_and_ports():
     options(senha_rtsp=''),
     options(gravadores=[]),
     options(gravadores=[recorder(nome='câmera')]),
-    options(gravadores=[recorder(), recorder(nome=' VILA ')]),
+    options(gravadores=[recorder(), recorder(nome=' SITIO ')]),
     options(gravadores=[recorder(canais=0)]),
     options(gravadores=[recorder(canais=65)]),
     options(gravadores=[recorder(canais=True)]),
@@ -70,10 +70,10 @@ def test_configure_rejects_non_object_profile():
 
 def test_prepare_builds_mediamtx_config():
     media, tunnels = bridge.prepare(start.configure(options(), PROFILE))
-    assert media['paths']['vila_ch1'] == {
+    assert media['paths']['sitio_ch1'] == {
         'source': 'rtsp://admin:p%40ss%3A%2F%23@127.0.0.1:15541/cam/realmonitor?channel=1&subtype=0',
         'rtspTransport': 'tcp'}
-    assert media['paths']['vila_ch2']['sourceOnDemand'] is True
+    assert media['paths']['sitio_ch2']['sourceOnDemand'] is True
     assert media['rtspAddress'] == ':8554' and media['apiAddress'] == '127.0.0.1:9997'
     assert all(media[server] is False for server in ('rtmp', 'hls', 'webrtc', 'srt', 'moq'))
     assert media['authInternalUsers'][0] == {
@@ -81,7 +81,7 @@ def test_prepare_builds_mediamtx_config():
     assert tunnels == [{'T2U_SERVER': 'p2p.example.test', 'T2U_SERVER_PORT': '8800', 'T2U_SERVER_KEY': 'k',
                         'T2U_REMOTE_IP': '127.0.0.1', 'T2U_UUID': 'ABC123', 'T2U_REMOTE_PORT': '554',
                         'T2U_LOCAL_PORT': '15541'}]
-    assert bridge.required_paths(media['paths']) == {'vila_ch1'}
+    assert bridge.required_paths(media['paths']) == {'sitio_ch1'}
 
 
 def test_prepare_rtsp_mode_has_no_tunnel():
@@ -107,7 +107,7 @@ def mutated(change):
     lambda c: c['devices'][0]['p2p'].update(local_port=8554),
     lambda c: c['devices'][0]['p2p'].update(local_port=9997),
     lambda c: c['devices'][1]['p2p'].update(local_port=15541),
-    lambda c: c['devices'][1]['streams'][0].update(name='vila_ch1'),
+    lambda c: c['devices'][1]['streams'][0].update(name='sitio_ch1'),
     lambda c: c['devices'][0]['streams'][0].update(name='bad name'),
     lambda c: c['devices'][0]['streams'][0].update(path='no-slash'),
     lambda c: c['devices'][0]['streams'][0].update(path='/a\r\nb'),
@@ -197,7 +197,7 @@ def test_urls_page_lists_streams_without_secrets():
     html = urls.page(config, 18554).decode()
     data = json.loads(html.split('const data = ', 1)[1].split(';\n', 1)[0])
     assert data == {'user': 'a</script>', 'port': 18554, 'recorders': [
-        ['vila_ch1', 'vila_ch1_sub', 'vila_ch2', 'vila_ch2_sub'],
+        ['sitio_ch1', 'sitio_ch1_sub', 'sitio_ch2', 'sitio_ch2_sub'],
         ['casa_ch1', 'casa_ch1_sub', 'casa_ch2', 'casa_ch2_sub']]}
     assert html.count('</script>') == 1
     for secret in ('out-pass', 'p@ss', 'ABC123', 'p2p.example.test'):
@@ -222,15 +222,15 @@ def test_urls_server_only_answers_ingress(monkeypatch):
     address = f'http://127.0.0.1:{server.server_address[1]}/any/prefix'
     try:
         with bridge.urllib.request.urlopen(address, timeout=3) as response:
-            assert response.status == 200 and b'vila_ch1_sub' in response.read()
+            assert response.status == 200 and b'sitio_ch1_sub' in response.read()
         monkeypatch.setattr(urls, 'snapshot', lambda name: b'jpeg:' + name.encode())
-        with bridge.urllib.request.urlopen(address + '/snapshot/vila_ch2_sub?t=1', timeout=3) as response:
-            assert response.read() == b'jpeg:vila_ch2_sub' and response.headers['Content-Type'] == 'image/jpeg'
+        with bridge.urllib.request.urlopen(address + '/snapshot/sitio_ch2_sub?t=1', timeout=3) as response:
+            assert response.read() == b'jpeg:sitio_ch2_sub' and response.headers['Content-Type'] == 'image/jpeg'
         with pytest.raises(bridge.urllib.error.HTTPError, match='404'):
             bridge.urllib.request.urlopen(address + '/snapshot/-i', timeout=3)
         monkeypatch.setattr(urls, 'snapshot', lambda name: None)
         with pytest.raises(bridge.urllib.error.HTTPError, match='503'):
-            bridge.urllib.request.urlopen(address + '/snapshot/vila_ch1', timeout=3)
+            bridge.urllib.request.urlopen(address + '/snapshot/sitio_ch1', timeout=3)
         monkeypatch.setattr(urls, 'ALLOWED_PEERS', ('172.30.32.2',))
         with pytest.raises(bridge.urllib.error.HTTPError, match='403'):
             bridge.urllib.request.urlopen(address, timeout=3)
@@ -256,15 +256,15 @@ def test_snapshot_returns_cached_jpeg_or_none(monkeypatch):
 def test_configure_uses_channel_list():
     config = start.configure(options(gravadores=[recorder(canais=None, canais_em_uso=' 9, 3-4 ,3')]), PROFILE)
     streams = config['devices'][0]['streams']
-    assert [s['name'] for s in streams] == ['vila_ch3', 'vila_ch3_sub', 'vila_ch4', 'vila_ch4_sub',
-                                            'vila_ch9', 'vila_ch9_sub']
+    assert [s['name'] for s in streams] == ['sitio_ch3', 'sitio_ch3_sub', 'sitio_ch4', 'sitio_ch4_sub',
+                                            'sitio_ch9', 'sitio_ch9_sub']
     assert [s['on_demand'] for s in streams] == [False, True, True, True, True, True]  # first listed keeps alive
     assert streams[4]['path'] == '/cam/realmonitor?channel=9&subtype=0'
     media, _ = bridge.prepare(config)
-    assert bridge.required_paths(media['paths']) == {'vila_ch3'}
+    assert bridge.required_paths(media['paths']) == {'sitio_ch3'}
     # An empty list falls back to the channel count.
     config = start.configure(options(gravadores=[recorder(canais=1, canais_em_uso=' ')]), PROFILE)
-    assert [s['name'] for s in config['devices'][0]['streams']] == ['vila_ch1', 'vila_ch1_sub']
+    assert [s['name'] for s in config['devices'][0]['streams']] == ['sitio_ch1', 'sitio_ch1_sub']
 
 
 @pytest.mark.skipif(not shutil.which('node'), reason='needs Node.js to parse the page script')
@@ -296,21 +296,21 @@ def test_tunnel_state_ignores_partial_file():
 
 def test_tunnel_log_prints_changes_and_missing_video(tmp_path, capsys):
     status = tmp_path / 'tunnel-0.status'
-    log = bridge.TunnelLog('vila', status, {'vila_ch1'})
+    log = bridge.TunnelLog('sitio', status, {'sitio_ch1'})
     log.update(None, 0)  # no file yet
     status.write_text('0 0 1\n')
     log.update(None, 1)
     log.update(None, 2)  # unchanged: nothing printed
     status.write_text('1 1 1\n')
-    log.update({'vila_ch1'}, 10)
-    log.update({'vila_ch1'}, 10 + bridge.VIDEO_GRACE_SECONDS)
+    log.update({'sitio_ch1'}, 10)
+    log.update({'sitio_ch1'}, 10 + bridge.VIDEO_GRACE_SECONDS)
     log.update(set(), 50)
     status.write_text('1 -4 0\n')
-    log.update({'vila_ch1'}, 60)
+    log.update({'sitio_ch1'}, 60)
     lines = capsys.readouterr().out.splitlines()
-    assert lines[0] == 'Gravador vila: conectando.' and lines[1] == 'Gravador vila: túnel conectado.'
+    assert lines[0] == 'Gravador sitio: conectando.' and lines[1] == 'Gravador sitio: túnel conectado.'
     assert 'mas sem vídeo' in lines[2] and lines[3] == lines[1] and 'offline' in lines[4] and len(lines) == 5
 
 
 def test_configure_names_devices():
-    assert start.configure(options(), PROFILE)['devices'][0]['name'] == 'vila'
+    assert start.configure(options(), PROFILE)['devices'][0]['name'] == 'sitio'
