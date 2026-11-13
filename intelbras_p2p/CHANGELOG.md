@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.5
+
+- A página "Abrir interface web" mostra uma miniatura de cada canal, atualizada ao clicar.
+- Novo campo `canais_em_uso` por gravador (por exemplo, `1,2,5-8`) para expor apenas os canais com câmera; `canais` passa a ser opcional.
+- A página traz a configuração de câmeras pronta para copiar e colar no Frigate.
+
 ## 1.0.4
 
 - Nova página "Abrir interface web" com os endereços RTSP de todos os canais, prontos para copiar.

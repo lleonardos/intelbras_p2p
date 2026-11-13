@@ -77,7 +77,8 @@ def prepare(config):
         'api': True, 'apiAddress': f'127.0.0.1:{API_PORT}',
         'authInternalUsers': [
             {'user': auth['username'], 'pass': auth['password'], 'permissions': [{'action': 'read'}]},
-            {'user': 'any', 'ips': ['127.0.0.1', '::1'], 'permissions': [{'action': 'api'}]},
+            # Loopback inside the container: the health check (api) and the address page thumbnails (read).
+            {'user': 'any', 'ips': ['127.0.0.1', '::1'], 'permissions': [{'action': 'api'}, {'action': 'read'}]},
         ], 'paths': paths,
     }, tunnels
 

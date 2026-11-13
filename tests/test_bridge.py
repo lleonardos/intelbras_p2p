@@ -1,6 +1,8 @@
 import copy
 import io
 import json
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -48,6 +50,12 @@ def test_configure_generates_streams_and_ports():
     options(gravadores=[recorder(canais=0)]),
     options(gravadores=[recorder(canais=65)]),
     options(gravadores=[recorder(canais=True)]),
+    options(gravadores=[recorder(canais=None)]),
+    options(gravadores=[recorder(canais_em_uso='0,1')]),
+    options(gravadores=[recorder(canais_em_uso='1,65')]),
+    options(gravadores=[recorder(canais_em_uso='5-2')]),
+    options(gravadores=[recorder(canais_em_uso='1;2')]),
+    options(gravadores=[recorder(canais_em_uso='1,,2')]),
     options(gravadores=[recorder(serial='  ')]),
 ])
 def test_configure_rejects(opts):
@@ -215,9 +223,53 @@ def test_urls_server_only_answers_ingress(monkeypatch):
     try:
         with bridge.urllib.request.urlopen(address, timeout=3) as response:
             assert response.status == 200 and b'vila_ch1_sub' in response.read()
+        monkeypatch.setattr(urls, 'snapshot', lambda name: b'jpeg:' + name.encode())
+        with bridge.urllib.request.urlopen(address + '/snapshot/vila_ch2_sub?t=1', timeout=3) as response:
+            assert response.read() == b'jpeg:vila_ch2_sub' and response.headers['Content-Type'] == 'image/jpeg'
+        with pytest.raises(bridge.urllib.error.HTTPError, match='404'):
+            bridge.urllib.request.urlopen(address + '/snapshot/-i', timeout=3)
+        monkeypatch.setattr(urls, 'snapshot', lambda name: None)
+        with pytest.raises(bridge.urllib.error.HTTPError, match='503'):
+            bridge.urllib.request.urlopen(address + '/snapshot/vila_ch1', timeout=3)
         monkeypatch.setattr(urls, 'ALLOWED_PEERS', ('172.30.32.2',))
         with pytest.raises(bridge.urllib.error.HTTPError, match='403'):
             bridge.urllib.request.urlopen(address, timeout=3)
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_snapshot_returns_cached_jpeg_or_none(monkeypatch):
+    calls = []
+
+    def run(command, **_):
+        calls.append(command)
+        return type('Done', (), {'stdout': b'\xff\xd8frame' if 'ok' in command[command.index('-i') + 1] else b''})()
+
+    monkeypatch.setattr(urls.subprocess, 'run', run)
+    cache = {}
+    assert urls.snapshot('ok_ch1', cache=cache) == urls.snapshot('ok_ch1', cache=cache) == b'\xff\xd8frame'
+    assert len(calls) == 1 and calls[0][calls[0].index('-i') + 1] == 'rtsp://127.0.0.1:8554/ok_ch1'
+    assert urls.snapshot('dark_ch1', cache={}) is None
+
+
+def test_configure_uses_channel_list():
+    config = start.configure(options(gravadores=[recorder(canais=None, canais_em_uso=' 9, 3-4 ,3')]), PROFILE)
+    streams = config['devices'][0]['streams']
+    assert [s['name'] for s in streams] == ['vila_ch3', 'vila_ch3_sub', 'vila_ch4', 'vila_ch4_sub',
+                                            'vila_ch9', 'vila_ch9_sub']
+    assert [s['on_demand'] for s in streams] == [False, True, True, True, True, True]  # first listed keeps alive
+    assert streams[4]['path'] == '/cam/realmonitor?channel=9&subtype=0'
+    media, _ = bridge.prepare(config)
+    assert bridge.required_paths(media['paths']) == {'vila_ch3'}
+    # An empty list falls back to the channel count.
+    config = start.configure(options(gravadores=[recorder(canais=1, canais_em_uso=' ')]), PROFILE)
+    assert [s['name'] for s in config['devices'][0]['streams']] == ['vila_ch1', 'vila_ch1_sub']
+
+
+@pytest.mark.skipif(not shutil.which('node'), reason='needs Node.js to parse the page script')
+def test_urls_page_script_parses(tmp_path):
+    html = urls.page(start.configure(options(), PROFILE), 18554).decode()
+    script = tmp_path / 'page.js'
+    script.write_text(html.split('<script>', 1)[1].split('</script>', 1)[0], encoding='utf-8')
+    assert subprocess.run(['node', '--check', str(script)]).returncode == 0

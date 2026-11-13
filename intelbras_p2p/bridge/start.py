@@ -21,6 +21,25 @@ DEFAULT_PROFILE = {
 }
 PROFILE_SECRETS = {'server_key': 'chave_p2p', 'password': 'senha_p2p'}  # profile key -> add-on option
 NAME_RE = re.compile(r'[a-z0-9_-]+')
+CHANNELS_RE = re.compile(r'[0-9]+(-[0-9]+)?')
+MAX_CHANNEL = 64
+
+
+def channel_list(recorder):
+    """Channels to expose: the `canais_em_uso` list (such as "1,2,5-8") or, without it, 1 to `canais`."""
+    text = str(recorder.get('canais_em_uso') or '').replace(' ', '')
+    if not text:
+        count = recorder.get('canais')
+        if type(count) is not int or not 1 <= count <= MAX_CHANNEL:
+            raise ValueError('Informe os canais em uso (por exemplo, 1,2,5-8) ou de 1 a 64 canais por gravador.')
+        return list(range(1, count + 1))
+    channels = set()
+    for part in text.split(','):
+        first, _, last = part.partition('-')
+        if not CHANNELS_RE.fullmatch(part) or not 1 <= int(first) <= int(last or first) <= MAX_CHANNEL:
+            raise ValueError('Canais em uso: use números de 1 a 64 separados por vírgula, como 1,2,5-8.')
+        channels.update(range(int(first), int(last or first) + 1))
+    return sorted(channels)
 
 
 def configure(options, profile):
@@ -35,17 +54,16 @@ def configure(options, profile):
         if not NAME_RE.fullmatch(name) or name in names:
             raise ValueError('Cada nome deve ser único e usar letras sem acentos, números, hífen ou sublinhado.')
         names.add(name)
-        count = recorder['canais']
-        if type(count) is not int or not 1 <= count <= 64:
-            raise ValueError('Informe de 1 a 64 canais por gravador.')
+        channels = channel_list(recorder)
         if not all(recorder[key].strip() for key in ('serial', 'usuario', 'senha')):
             raise ValueError('Preencha o serial, o usuário e a senha de cada gravador.')
         streams = []
-        for channel in range(1, count + 1):
+        for channel in channels:
             for subtype, suffix in ((0, ''), (1, '_sub')):
+                # The main stream of the first channel stays connected to keep the recorder tunnel alive.
                 streams.append({'name': f'{name}_ch{channel}{suffix}',
                                 'path': f'/cam/realmonitor?channel={channel}&subtype={subtype}',
-                                'on_demand': channel != 1 or subtype != 0})
+                                'on_demand': channel != channels[0] or subtype != 0})
         devices.append({'mode': 'p2p', 'username': recorder['usuario'], 'password': recorder['senha'],
                         'p2p': {**profile, 'uuid': recorder['serial'].strip(), 'remote_port': 554,
                                 'local_port': FIRST_LOCAL_PORT + index}, 'streams': streams})
