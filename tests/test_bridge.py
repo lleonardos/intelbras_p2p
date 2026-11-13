@@ -149,6 +149,10 @@ def test_load_defaults_and_overrides(tmp_path, monkeypatch):
     monkeypatch.setattr(start, 'PROFILE_FILE', tmp_path / 'profile.json')
     monkeypatch.setattr(start, 'OPTIONS_FILE', tmp_path / 'options.json')
     (tmp_path / 'options.json').write_text(json.dumps(options()))
+    p2p = start.load()['devices'][0]['p2p']  # nothing filled in: the SDK defaults apply
+    assert (p2p['server_key'], p2p['password']) == (
+        start.DEFAULT_PROFILE['server_key'], start.DEFAULT_PROFILE['password'])
+    (tmp_path / 'profile.json').write_text('{"server_key": "", "password": ""}')
     with pytest.raises(ValueError, match='chave_p2p, senha_p2p'):
         start.load()
     (tmp_path / 'options.json').write_text(json.dumps(options(chave_p2p=' ui-key ', senha_p2p='ui-pass')))

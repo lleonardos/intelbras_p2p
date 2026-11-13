@@ -9,12 +9,13 @@ import main as bridge
 OPTIONS_FILE = Path('/data/options.json')
 PROFILE_FILE = Path('/config/profile.json')
 FIRST_LOCAL_PORT = 15541
-# Intelbras Cloud relay settings, the same for every recorder. The two SDK secrets are not shipped
-# here: they come from the add-on options, or from an optional profile.json in the add-on config
-# folder, which can also override the defaults below.
+# Intelbras Cloud relay settings from the vendor SDK, the same for every recorder. The add-on
+# options (key and password) or an optional profile.json in the add-on config folder override them.
 DEFAULT_PROFILE = {
     'server': 'intelbrasp2p.com.br',
     'server_port': 1250,
+    'server_key': 'p2pintelbras2014543',
+    'password': 'tesT91534',
     'remote_ip': '127.0.0.1',
 }
 PROFILE_SECRETS = {'server_key': 'chave_p2p', 'password': 'senha_p2p'}  # profile key -> add-on option
@@ -68,7 +69,7 @@ def load():
             profile[key] = value.strip()
     missing = [option for key, option in PROFILE_SECRETS.items() if not profile.get(key)]
     if missing:
-        raise ValueError('Preencha na aba Configuração: ' + ', '.join(missing) + '.')
+        raise ValueError('Valor vazio no profile.json; preencha na aba Configuração: ' + ', '.join(missing) + '.')
     return configure(options, profile)
 
 

@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.3
+
+- A chave e a senha do servidor P2P da Intelbras Cloud já vêm embutidas; `chave_p2p` e `senha_p2p` tornam-se opcionais e servem apenas para sobrescrever os valores padrão.
+
 ## 1.0.2
 
 - A chave e a senha do servidor P2P passam a ser informadas na aba Configuração (`chave_p2p` e `senha_p2p`); o `profile.json` torna-se opcional.
