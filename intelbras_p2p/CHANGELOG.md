@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.8
+
+- Uso de CPU muito menor: a biblioteca P2P fazia esperas de 1 ms em dezenas de threads, o que ocupava cerca de um núcleo por gravador. Essas esperas agora têm um mínimo de 30 ms.
+
 ## 1.0.7
 
 - Menos uso de CPU: o túnel de cada gravador passa a ser mantido pelo stream secundário do primeiro canal, e não mais pelo principal. O stream principal só abre quando um cliente pede.
