@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.4.0
+
+- Novos sensores por canal no Home Assistant: câmera tampada e, onde o gravador tem a função ligada, pessoa, veículo, linha virtual, cerca virtual e face.
+- Controles por canal: interruptor da detecção de movimento e ajuste da sensibilidade, que alteram a configuração do gravador.
+- Diagnóstico do gravador: modelo, firmware, capacidade e problema nos discos.
+- A interface web mostra os selos TAMPADA e ALERTA IA nas câmeras.
+
+## 1.3.0
+
+- Interface web refeita: mosaico de câmeras com selos de movimento e de sem vídeo ao vivo, estado do gravador no topo e abas para Gravações e para Endereços e Frigate.
+- Gravações com linha do tempo do dia: clique em um período gravado para assistir.
+- Em gravadores com gerenciamento, as miniaturas vêm do próprio gravador, mais rápidas e sem abrir o stream de vídeo.
+
 ## 1.2.0
 
 - Gerenciamento opcional por gravador (`gerenciamento` e `porta_http`), desligado por padrão.

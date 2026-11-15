@@ -198,8 +198,10 @@ def test_urls_page_lists_streams_without_secrets():
     html = urls.page(config, 18554).decode()
     data = json.loads(html.split('const data = ', 1)[1].split(';\n', 1)[0])
     assert data == {'user': 'a</script>', 'port': 18554, 'recorders': [
-        ['sitio_ch1', 'sitio_ch1_sub', 'sitio_ch2', 'sitio_ch2_sub'],
-        ['casa_ch1', 'casa_ch1_sub', 'casa_ch2', 'casa_ch2_sub']]}
+        {'name': 'sitio', 'streams': ['sitio_ch1', 'sitio_ch1_sub', 'sitio_ch2', 'sitio_ch2_sub'],
+         'channels': [1, 2], 'managed': False},
+        {'name': 'casa', 'streams': ['casa_ch1', 'casa_ch1_sub', 'casa_ch2', 'casa_ch2_sub'],
+         'channels': [1, 2], 'managed': False}]}
     assert html.count('</script>') == 1
     for secret in ('out-pass', 'p@ss', 'ABC123', 'p2p.example.test'):
         assert secret not in html
@@ -224,12 +226,12 @@ def test_urls_server_only_answers_ingress(monkeypatch):
     try:
         with bridge.urllib.request.urlopen(address, timeout=3) as response:
             assert response.status == 200 and b'sitio_ch1_sub' in response.read()
-        monkeypatch.setattr(urls, 'snapshot', lambda name: b'jpeg:' + name.encode())
+        monkeypatch.setattr(urls, 'snapshot', lambda name, **_: b'jpeg:' + name.encode())
         with bridge.urllib.request.urlopen(address + '/snapshot/sitio_ch2_sub?t=1', timeout=3) as response:
             assert response.read() == b'jpeg:sitio_ch2_sub' and response.headers['Content-Type'] == 'image/jpeg'
         with pytest.raises(bridge.urllib.error.HTTPError, match='404'):
             bridge.urllib.request.urlopen(address + '/snapshot/-i', timeout=3)
-        monkeypatch.setattr(urls, 'snapshot', lambda name: None)
+        monkeypatch.setattr(urls, 'snapshot', lambda name, **_: None)
         with pytest.raises(bridge.urllib.error.HTTPError, match='503'):
             bridge.urllib.request.urlopen(address + '/snapshot/sitio_ch1', timeout=3)
         monkeypatch.setattr(urls, 'ALLOWED_PEERS', ('172.30.32.2',))
@@ -252,6 +254,9 @@ def test_snapshot_returns_cached_jpeg_or_none(monkeypatch):
     assert urls.snapshot('ok_ch1', cache=cache) == urls.snapshot('ok_ch1', cache=cache) == b'\xff\xd8frame'
     assert len(calls) == 1 and calls[0][calls[0].index('-i') + 1] == 'rtsp://127.0.0.1:8554/ok_ch1'
     assert urls.snapshot('dark_ch1', cache={}) is None
+    # A managed recorder supplies the picture itself; ffmpeg is the fallback, and "fresh" skips the cache.
+    assert urls.snapshot('ok_ch2', cache=cache, fetch=lambda: b'\xff\xd8cgi') == b'\xff\xd8cgi' and len(calls) == 2
+    assert urls.snapshot('ok_ch2', cache=cache, fetch=lambda: None, fresh=True) == b'\xff\xd8frame' and len(calls) == 3
 
 
 def test_configure_uses_channel_list():

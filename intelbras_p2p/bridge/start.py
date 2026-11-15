@@ -4,6 +4,7 @@ import re
 import sys
 from pathlib import Path
 
+import dvr_controls
 import events
 import main as bridge
 import urls
@@ -114,13 +115,14 @@ if __name__ == '__main__':
         print('Verifique a configuração do Intelbras P2P.', str(exc) if type(exc) is ValueError else '', flush=True)
         sys.exit(2)
     drop_privileges()
+    managed = dvr_controls.recorders(settings)
     try:
-        urls.serve(settings)
+        urls.serve(settings, recorders=managed)
         print('Endereços RTSP: clique em "Abrir interface web" na página do add-on.', flush=True)
     except OSError:
         print('A página de endereços RTSP não pôde ser iniciada; o vídeo não é afetado.', flush=True)
     try:
-        events.start(settings)
+        events.start(settings, managed)
     except Exception as exc:  # optional feature: whatever goes wrong here must not stop the video
         print(f'Eventos dos gravadores indisponíveis ({type(exc).__name__}); o vídeo não é afetado.', flush=True)
     sys.exit(bridge.main(settings))

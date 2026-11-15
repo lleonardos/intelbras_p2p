@@ -2,7 +2,7 @@
 
 Add-on do Home Assistant que conecta gravadores (DVRs) Intelbras Cloud por P2P e entrega cada canal como um endereço RTSP, pronto para o Frigate ou qualquer outro cliente. Funciona sem IP fixo e sem abrir portas no roteador do local onde o gravador está: basta o serial Intelbras Cloud.
 
-Opcionalmente, o add-on também cria sensores de movimento e de perda de vídeo no Home Assistant e oferece um painel para consultar o estado do gravador e rever gravações.
+Opcionalmente, o add-on também cria no Home Assistant sensores de movimento, de perda de vídeo e dos alertas inteligentes do gravador, controles da detecção de movimento, e oferece um painel para consultar o estado do gravador e rever gravações.
 
 Projeto independente, sem vínculo com a Intelbras.
 
@@ -12,7 +12,7 @@ Projeto independente, sem vínculo com a Intelbras.
 - Processador Intel ou AMD de 64 bits (amd64). Não funciona em Raspberry Pi.
 - Gravador com o Intelbras Cloud ativado e com acesso à internet.
 - O serial Intelbras Cloud, o usuário e a senha de cada gravador.
-- Opcional, apenas para os sensores de eventos: um broker MQTT no Home Assistant, como o add-on Mosquitto, com a integração MQTT configurada.
+- Opcional, apenas para os sensores e controles no Home Assistant: um broker MQTT no Home Assistant, como o add-on Mosquitto, com a integração MQTT configurada.
 
 Testado com os modelos MHDX 3116-C e MHDX 1116.
 
@@ -29,7 +29,7 @@ Testado com os modelos MHDX 3116-C e MHDX 1116.
 4. Abra a aba **Configuração** e preencha os campos descritos na próxima seção.
 5. Clique em **Salvar** e, na aba **Informações**, em **Iniciar**.
 6. Confira a aba **Log**. Em cerca de 15 segundos deve aparecer `Gravador NOME: túnel conectado.` para cada gravador.
-7. Clique em **Abrir interface web** para ver e copiar os endereços RTSP.
+7. Clique em **Abrir interface web** para ver as câmeras e copiar os endereços RTSP.
 
 Depois de alterar, adicionar ou remover gravadores, salve e reinicie o add-on.
 
@@ -56,7 +56,7 @@ Adicione uma entrada para cada gravador.
 | `senha` | Sim | Senha desse usuário do gravador. |
 | `canais_em_uso` | Um dos dois | Lista dos canais que têm câmera, separados por vírgula, com intervalos se quiser. Exemplo: `1,2,5-8`. |
 | `canais` | Um dos dois | Quantidade total de canais, de 1 a 64. Expõe do canal 1 até esse número. Usado apenas quando `canais_em_uso` está vazio. |
-| `gerenciamento` | Não | Liga o painel de gerenciamento e os sensores de eventos deste gravador. Desligado por padrão. Veja [Gerenciamento do gravador](#gerenciamento-do-gravador). |
+| `gerenciamento` | Não | Liga o painel de gerenciamento, os sensores e os controles deste gravador. Desligado por padrão. Veja [Gerenciamento do gravador](#gerenciamento-do-gravador). |
 | `porta_http` | Não | Porta HTTP do gravador, usada pelo gerenciamento. Padrão: 80. |
 
 Prefira `canais_em_uso`: a página de endereços e o YAML do Frigate ficam só com as câmeras que existem.
@@ -95,13 +95,19 @@ Cada canal tem dois endereços, formados com o nome do gravador em minúsculas e
 
 `USUARIO` e `SENHA` são o `usuario_rtsp` e a `senha_rtsp`. Para o gravador `casa`, o canal 5 fica em `/casa_ch5` e `/casa_ch5_sub`.
 
-A página **Abrir interface web** lista todos os endereços com botão de copiar e uma miniatura de cada canal. Digite a senha RTSP na própria página para que os endereços saiam completos; caracteres especiais da senha já são codificados.
+A página **Abrir interface web** tem três abas:
+
+- **Câmeras:** um mosaico com a imagem de cada canal. Clique em uma câmera para ver e copiar os dois endereços dela.
+- **Gravações:** aparece quando algum gravador tem o gerenciamento ligado.
+- **Endereços e Frigate:** todos os endereços de uma vez e a configuração pronta para o Frigate.
+
+Na aba **Endereços e Frigate**, digite a senha RTSP para que os endereços saiam completos; caracteres especiais da senha já são codificados.
 
 Se a porta 18554 estiver em uso, troque-a na aba **Configuração**, seção **Rede**.
 
 ## Uso com o Frigate
 
-A mesma página traz o bloco **Configuração para o Frigate**, com uma câmera por canal: o stream secundário para detecção e o principal para gravação. Copie e cole dentro do `config.yaml` do Frigate, depois ajuste resolução, zonas e o que mais precisar.
+A aba **Endereços e Frigate** traz o bloco **Configuração para o Frigate**, com uma câmera por canal: o stream secundário para detecção e o principal para gravação. Copie e cole dentro do `config.yaml` do Frigate, depois ajuste resolução, zonas e o que mais precisar.
 
 ## Gerenciamento do gravador
 
@@ -112,37 +118,66 @@ Opcional e desligado por padrão. Com `gerenciamento` ligado em um gravador, o a
 1. Na aba **Configuração**, ligue `gerenciamento` no gravador desejado. Se a porta HTTP do gravador não for a 80, informe-a em `porta_http`.
 2. Salve e reinicie o add-on.
 3. Confira a aba **Log**: deve aparecer `Gravador NOME: eventos conectados.`
-4. Clique em **Abrir interface web**. O painel **Gerenciar gravador** fica no fim da página.
+4. Clique em **Abrir interface web**. O gravador passa a mostrar o selo **eventos ao vivo**, e a aba **Gravações** aparece.
 
-### Sensores no Home Assistant
+### Sensores e controles no Home Assistant
 
-Cada canal configurado ganha dois sensores, criados automaticamente por MQTT:
+Tudo é criado automaticamente por MQTT e aparece no dispositivo **Intelbras NOME**, em **Configurações → Dispositivos e serviços → MQTT**.
 
-| Sensor | Fica ligado quando |
+**Sensores por canal**
+
+| Sensor | Fica ligado quando | Criado |
+|---|---|---|
+| Canal N movimento | O gravador detecta movimento no canal. | Sempre |
+| Canal N sem vídeo | O canal está sem sinal de câmera. | Sempre |
+| Canal N câmera tampada | A imagem do canal está obstruída. | Sempre |
+| Canal N pessoa / veículo | A detecção inteligente do gravador identifica uma pessoa ou um veículo. | Quando a função está ligada no canal |
+| Canal N linha virtual / cerca virtual | Uma regra de linha ou de área do gravador dispara. | Quando há regra ativa no canal |
+| Canal N face | A detecção de face dispara. | Quando há regra ativa no canal |
+
+Os sensores da coluna "quando" também são criados na primeira vez que o evento chega. As funções inteligentes são ligadas e configuradas no próprio gravador; depois de ligá-las, reinicie o add-on. Um evento que o add-on ainda não conhece aparece uma vez no log, com o nome do evento e o canal.
+
+**Controles por canal**
+
+| Controle | O que altera no gravador |
 |---|---|
-| Canal N movimento | O gravador detecta movimento no canal. |
-| Canal N sem vídeo | O canal está sem sinal de câmera. |
+| Canal N detecção de movimento | Liga ou desliga a detecção de movimento do canal. |
+| Canal N sensibilidade de movimento | Sensibilidade da detecção, de 0 a 100. |
 
-Eles aparecem no dispositivo **Intelbras NOME**, em **Configurações → Dispositivos e serviços → MQTT**, e ficam indisponíveis enquanto o add-on ou a conexão com o gravador estiver fora do ar.
+O valor mostrado é sempre o que o gravador confirmou depois da alteração. Desligar a detecção de movimento de um canal também afeta a gravação por movimento do próprio gravador. Qualquer cliente com acesso ao broker MQTT pode enviar esses comandos.
+
+**Diagnóstico do gravador**
+
+Modelo, firmware, capacidade dos discos e um sensor de problema nos discos, atualizados a cada 30 minutos.
+
+Todas as entidades ficam indisponíveis enquanto o add-on ou a conexão com o gravador estiver fora do ar.
 
 - O movimento é o detectado pelo próprio gravador, então a detecção de movimento precisa estar habilitada nele.
-- Sem broker MQTT, os sensores não são criados e os eventos aparecem apenas em **Estado do DVR**, no painel. O log informa qual dos dois casos vale.
+- Sem broker MQTT, nada disso é criado e os eventos aparecem apenas no mosaico da interface web. O log informa qual dos dois casos vale.
 - Para usar um sensor como gatilho no Frigate ou em outra ferramenta, crie uma automação no Home Assistant.
 
-### Painel na interface web
+### Na interface web
 
-Escolha o gravador e o canal e use os botões:
+**Aba Câmeras**
 
-| Função | O que faz |
+- O topo de cada gravador mostra modelo, firmware, relógio e discos.
+- Cada câmera ganha os selos **MOVIMENTO**, **SEM VÍDEO**, **TAMPADA** e **ALERTA IA** (pessoa, veículo, linha, cerca ou face) enquanto o evento dura, atualizados a cada poucos segundos.
+- As miniaturas passam a vir do próprio gravador, o que é mais rápido e não abre o stream de vídeo.
+- Ao clicar em uma câmera, além dos endereços aparecem:
+
+| Controle | O que faz |
 |---|---|
-| **Estado do DVR** | Mostra modelo, firmware, relógio, discos e os canais com movimento ou sem vídeo naquele momento. |
-| **Consultar nome** | Lê o nome do canal gravado no DVR. |
-| **Salvar nome no DVR** | Altera o nome do canal no gravador. Pede confirmação. |
-| **PTZ** | Envia pulsos de direção e zoom para câmeras com PTZ. |
-| **Buscar gravações** | Lista os intervalos gravados no dia escolhido, no horário do DVR. |
-| **Reproduzir trecho** | Mostra até 30 segundos de gravação, sem áudio, a partir do horário informado. **Próximos 30 s** continua de onde parou. |
+| **Nome do canal no gravador** e **Salvar nome** | Mostra o nome gravado no DVR e permite alterá-lo. Pede confirmação. |
+| Setas e **Aproximar** / **Afastar** | Enviam pulsos de direção e zoom para câmeras com PTZ. |
+| **Ver gravações deste canal** | Abre a aba Gravações já no canal escolhido. |
 
-A reprodução converte o vídeo dentro do add-on, o que usa processador enquanto alguém assiste.
+**Aba Gravações**
+
+1. Escolha o gravador, o canal e o dia, e clique em **Buscar gravações**.
+2. A linha do tempo mostra em verde os períodos gravados, no horário do gravador. Clique em uma faixa para assistir desde o início dela.
+3. Para outro horário, clique em qualquer ponto da linha do tempo, ou digite o horário, e use **Reproduzir 30 s**. **Próximos 30 s** continua de onde parou.
+
+Cada trecho tem até 30 segundos, sem áudio. A reprodução converte o vídeo dentro do add-on, o que usa processador enquanto alguém assiste.
 
 ### Compatibilidade
 
@@ -150,7 +185,11 @@ O que cada função alcança depende do modelo, do firmware e das permissões do
 
 | Função | MHDX 1116 | MHDX 3116-C |
 |---|---|---|
-| Sensores de eventos | Funciona | Funciona |
+| Sensores de movimento e sem vídeo | Funciona | Funciona |
+| Controles de detecção e sensibilidade de movimento | Funciona | Funciona |
+| Diagnóstico do gravador | Funciona | Funciona |
+| Sensores de linha e cerca virtual | Criados; disparo não observado | Não tem a função |
+| Sensores de pessoa, veículo, face e câmera tampada | Disparo não observado | Disparo não observado |
 | Estado do DVR e nome do canal | Funciona | Funciona |
 | Busca e reprodução de gravações | Funciona | Não funciona |
 | Salvar nome e PTZ | Não testado | Não testado |

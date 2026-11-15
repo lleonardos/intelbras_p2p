@@ -1,14 +1,14 @@
 """Recorder operations available through the authenticated add-on ingress."""
 from datetime import date
-import json
 import re
 import threading
 import time
-import urllib.parse
 import urllib.error
+import urllib.parse
 import urllib.request
 
-import events
+PTZ_CODES = ('Up', 'Down', 'Left', 'Right', 'ZoomTele', 'ZoomWide')
+SNAPSHOT_BYTES = 2 * 1024 * 1024
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -34,17 +34,32 @@ def disks(body):
     return [tuple(found[index]) for index in sorted(found)]
 
 
+def titles(body, channels):
+    """{channel: name} for the configured channels, from configManager getConfig ChannelTitle."""
+    names = {int(index) + 1: name.strip() for index, name in re.findall(r'ChannelTitle\[(\d+)\]\.Name=([^\r\n]*)', body)}
+    return {channel: names[channel] for channel in channels if channel in names}
+
+
+def recorders(config):
+    """{name: Recorder} for the devices with management enabled."""
+    return {device['name']: Recorder(device) for device in config['devices'] if 'management_local_port' in device}
+
+
 class Recorder:
     def __init__(self, device):
         self.device = device
         self.channels = sorted({int(s['name'].rsplit('_ch', 1)[1].split('_')[0]) for s in device['streams']})
         self.base = 'http://127.0.0.1:' + str(device['management_local_port']) + '/cgi-bin/'
+        # Separate openers: the digest handler keeps retry state, so panel actions and thumbnails must not share one.
+        self.http, self.images = self.opener(), self.opener()
+        self.lock, self.image_lock = threading.Lock(), threading.Lock()
+
+    def opener(self):
         passwords = urllib.request.HTTPPasswordMgrWithDefaultRealm()
-        passwords.add_password(None, self.base, device['username'], device['password'])
-        self.http = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect(),
-                                                urllib.request.HTTPDigestAuthHandler(passwords),
-                                                urllib.request.HTTPBasicAuthHandler(passwords))
-        self.lock = threading.Lock()
+        passwords.add_password(None, self.base, self.device['username'], self.device['password'])
+        return urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect(),
+                                           urllib.request.HTTPDigestAuthHandler(passwords),
+                                           urllib.request.HTTPBasicAuthHandler(passwords))
 
     def call(self, script, **params):
         with self.http.open(self.base + script + '.cgi?' + urllib.parse.urlencode(params, quote_via=urllib.parse.quote, safe='[]:'), timeout=8) as response:
@@ -53,22 +68,75 @@ class Recorder:
             raise ValueError('Operação recusada pelo gravador.')
         return body
 
+    def guarded(self, action, *args, wait=20):
+        """Run `action` holding the recorder lock, waiting for a panel request in progress to finish."""
+        if not self.lock.acquire(timeout=wait):
+            raise ValueError('Gravador ocupado.')
+        try:
+            return action(*args)
+        finally:
+            self.lock.release()
+
+    def config(self, name):
+        """Text of one configuration table. `name` always comes from this add-on, never from a request."""
+        return self.guarded(lambda: self.call('configManager', action='getConfig', name=name))
+
+    def set_config(self, key, value):
+        return self.guarded(lambda: self.call('configManager', action='setConfig', **{key: value}))
+
+    def snapshot(self, channel):
+        """A JPEG of the channel taken by the recorder itself, or None. Much lighter than opening the RTSP stream."""
+        if channel not in self.channels:
+            return None
+        try:
+            with self.image_lock, self.images.open(f'{self.base}snapshot.cgi?channel={channel}', timeout=8) as response:
+                image = response.read(SNAPSHOT_BYTES)
+        except OSError:
+            return None
+        return image if image.startswith(b'\xff\xd8') else None
+
     def status(self):
-        """Model, firmware, clock, disks and current events as text. Never includes the serial number."""
-        lines = ['Modelo: ' + self.call('magicBox', action='getDeviceType').partition('=')[2],
-                 'Firmware: ' + firmware(self.call('magicBox', action='getSoftwareVersion')),
-                 'Relógio do DVR: ' + self.call('global', action='getCurrentTime').partition('=')[2]]
-        found = disks(self.call('storageDevice', action='getDeviceAllInfo'))
-        lines += [f'Disco {number}: {size / 1e9:.0f} GB, ' + ('com erro' if error else 'sem erro')
-                  for number, (size, error) in enumerate(found, 1)] or ['Disco: nenhum encontrado']
-        if events.HUB:
-            online, active = events.HUB.summary(self.device['name'])
-            if online:
-                lines += [f'Canais {label} agora: ' + (', '.join(map(str, active[code])) or 'nenhum')
-                          for code, label in (('VideoMotion', 'com movimento'), ('VideoLoss', 'sem vídeo'))]
-            else:
-                lines.append('Eventos: sem conexão com o gravador')
-        return '\n'.join(lines)
+        """Model, firmware, clock and disks. Never includes the serial number."""
+        return {'model': self.call('magicBox', action='getDeviceType').partition('=')[2],
+                'firmware': firmware(self.call('magicBox', action='getSoftwareVersion')),
+                'clock': self.call('global', action='getCurrentTime').partition('=')[2],
+                'disks': [{'gb': round(size / 1e9), 'error': error}
+                          for size, error in disks(self.call('storageDevice', action='getDeviceAllInfo'))]}
+
+    def recordings(self, channel, day):
+        result = self.call('mediaFileFind', action='factory.create')
+        match = re.fullmatch(r'result=(\d+)', result)
+        if not match:
+            raise ValueError('Busca indisponível neste firmware.')
+        obj = match[1]
+        try:
+            conditions = {
+                'condition.Channel': channel, 'condition.StartTime': day + ' 00:00:00',
+                'condition.EndTime': day + ' 23:59:59', 'condition.Types[0]': 'dav'}
+            try:
+                self.call('mediaFileFind', action='findFile', object=obj, **conditions)
+            except urllib.error.HTTPError as exc:
+                if exc.code != 400 or not 2**31 <= int(obj) < 2**32:
+                    raise
+                signed = str(int(obj) - 2**32)
+                self.call('mediaFileFind', action='findFile', object=signed, **conditions)
+                obj = signed
+            entries = []
+            for _ in range(20):
+                batch = self.call('mediaFileFind', action='findNextFile', object=obj, count=50)
+                fields = re.findall(r'items\[(\d+)\]\.(StartTime|EndTime)=([^\r\n]+)', batch)
+                times = {}
+                for index, field, value in fields:
+                    times.setdefault(index, {})[field] = value
+                entries.extend([t['StartTime'], t['EndTime']] for t in times.values() if len(t) == 2)
+                if len(times) < 50:
+                    break
+            return entries
+        finally:
+            try:
+                self.call('mediaFileFind', action='close', object=obj)
+            finally:
+                self.call('mediaFileFind', action='destroy', object=obj)
 
     def run(self, data):
         action = data['action']
@@ -78,23 +146,20 @@ class Recorder:
         if not self.lock.acquire(blocking=False):
             raise ValueError('Gravador ocupado.')
         try:
+            key = f'ChannelTitle[{channel - 1}].Name'
             if action == 'status':
                 return self.status()
-            key = f'ChannelTitle[{channel - 1}].Name'
-            if action == 'title':
-                values = self.call('configManager', action='getConfig', name='ChannelTitle')
-                for line in values.splitlines():
-                    if line.startswith('table.' + key + '='):
-                        return line.partition('=')[2]
-                raise ValueError('Nome do canal indisponível.')
+            if action == 'titles':
+                return titles(self.call('configManager', action='getConfig', name='ChannelTitle'), self.channels)
             if action == 'rename':
                 title = data['title'].strip()
                 if not title or len(title) > 32 or not title.isprintable():
                     raise ValueError('Informe um nome de até 32 caracteres.')
-                return self.call('configManager', action='setConfig', **{key: title})
+                self.call('configManager', action='setConfig', **{key: title})
+                return title
             if action == 'ptz':
                 code = data['direction']
-                if code not in ('Up', 'Down', 'Left', 'Right', 'ZoomTele', 'ZoomWide'):
+                if code not in PTZ_CODES:
                     raise ValueError('Direção inválida.')
                 params = dict(channel=channel, code=code, arg1=0, arg2=2, arg3=0)
                 try:
@@ -102,95 +167,9 @@ class Recorder:
                     time.sleep(0.3)
                 finally:
                     self.call('ptz', action='stop', **params)
-                return 'Comando enviado.'
+                return True
             if action == 'recordings':
-                day = date.fromisoformat(data['day']).isoformat()
-                result = self.call('mediaFileFind', action='factory.create')
-                match = re.fullmatch(r'result=(\d+)', result)
-                if not match:
-                    raise ValueError('Busca indisponível neste firmware.')
-                obj = match[1]
-                try:
-                    conditions = {
-                        'condition.Channel': channel, 'condition.StartTime': day + ' 00:00:00',
-                        'condition.EndTime': day + ' 23:59:59', 'condition.Types[0]': 'dav'}
-                    try:
-                        self.call('mediaFileFind', action='findFile', object=obj, **conditions)
-                    except urllib.error.HTTPError as exc:
-                        if exc.code != 400 or not 2**31 <= int(obj) < 2**32:
-                            raise
-                        signed = str(int(obj) - 2**32)
-                        self.call('mediaFileFind', action='findFile', object=signed, **conditions)
-                        obj = signed
-                    entries = []
-                    for _ in range(20):
-                        batch = self.call('mediaFileFind', action='findNextFile', object=obj, count=50)
-                        fields = re.findall(r'items\[(\d+)\]\.(StartTime|EndTime)=([^\r\n]+)', batch)
-                        times = {}
-                        for index, field, value in fields:
-                            times.setdefault(index, {})[field] = value
-                        entries.extend(t.get('StartTime', '?') + ' — ' + t.get('EndTime', '?') for t in times.values())
-                        if len(times) < 50:
-                            break
-                    return '\n'.join(entries) or 'Nenhuma gravação encontrada.'
-                finally:
-                    try:
-                        self.call('mediaFileFind', action='close', object=obj)
-                    finally:
-                        self.call('mediaFileFind', action='destroy', object=obj)
+                return self.recordings(channel, date.fromisoformat(data['day']).isoformat())
             raise ValueError('Operação inválida.')
         finally:
             self.lock.release()
-
-
-def panel(recorders):
-    devices = json.dumps({name: rec.channels for name, rec in recorders.items()}).replace('<', '\\u003c')
-    if not recorders:
-        return ''
-    return '''<section><h2>Gerenciar gravador</h2><select id="dvr"></select> Canal <select id="dch"></select>
-    <p><button data-op="status">Estado do DVR</button> <button data-op="title">Consultar nome</button> <input id="dtitle" maxlength="32" placeholder="Nome do canal">
-    <button data-op="rename">Salvar nome no DVR</button></p>
-    <p>PTZ <button data-dir="Up">↑</button><button data-dir="Down">↓</button><button data-dir="Left">←</button>
-    <button data-dir="Right">→</button><button data-dir="ZoomTele">Zoom +</button><button data-dir="ZoomWide">Zoom −</button></p>
-    <input type="date" id="dday"><button data-op="recordings">Buscar gravações</button><pre id="dresult" role="status"></pre><div id="intervals"></div>
-    <p><label>Horário no DVR <input type="time" id="dtime" step="1" value="12:00:00"></label>
-    <button id="watch">Reproduzir trecho</button><button id="next" disabled>Próximos 30 s</button></p>
-    <video id="archive" controls playsinline style="width:100%;max-width:960px"></video></section>
-    <script>(()=>{const devices=DEVICES, el=id=>document.getElementById(id), d=el('dvr'), ch=el('dch');
-    for(const name of Object.keys(devices)) d.add(new Option(name,name));
-    function refresh(){ch.replaceChildren();for(const n of devices[d.value])ch.add(new Option(n,n));}
-    d.onchange=refresh;refresh();el('dday').valueAsDate=new Date();
-    let currentUrl, generation=0, until=null;
-    function reset(){generation++;el('archive').pause();el('archive').removeAttribute('src');el('archive').load();
-      if(currentUrl)URL.revokeObjectURL(currentUrl);currentUrl=null;until=null;el('next').disabled=true;
-      el('intervals').replaceChildren();el('dresult').textContent='';}
-    for(const input of [d,ch,el('dday')])input.addEventListener('change',reset);
-    el('dtime').onchange=()=>{until=null;el('next').disabled=true;};
-    function instant(s){return Date.parse(s.replace(' ','T')+'Z');}
-    async function watch(){
-      const id=++generation, time=el('dtime').value, start=el('dday').value+' '+(time.length===5?time+':00':time);
-      const ms=instant(start);if(!Number.isFinite(ms))return;
-      const seconds=until===null?30:Math.min(30,Math.floor((until-ms)/1000));if(seconds<1)return;
-      const data={action:'playback',device:d.value,channel:ch.value,start,seconds};
-      el('next').disabled=true;el('dresult').textContent='Carregando trecho…';
-      try{const r=await fetch('control',{method:'POST',headers:{'Content-Type':'application/json','X-DVR-Control':'1'},body:JSON.stringify(data)});
-        if(!r.ok)throw Error();const blob=await r.blob();if(id!==generation)return;
-        if(currentUrl)URL.revokeObjectURL(currentUrl);currentUrl=URL.createObjectURL(blob);
-        el('archive').src=currentUrl;el('archive').play().catch(()=>{});
-        el('dresult').textContent=start;const next=ms+seconds*1000;
-        el('next').disabled=until!==null&&next>=until;
-        el('next').onclick=()=>{const iso=new Date(next).toISOString();el('dday').value=iso.slice(0,10);el('dtime').value=iso.slice(11,19);watch();};
-      }catch{if(id===generation)el('dresult').textContent='Trecho indisponível neste horário ou gravador ocupado.';}}
-    el('watch').onclick=watch;
-    for(const b of document.querySelectorAll('[data-op],[data-dir]')) b.onclick=async()=>{
-    const action=b.dataset.op||'ptz';if(action==='rename'&&!confirm('Alterar o nome deste canal no gravador?'))return;
-    const data={device:d.value,channel:ch.value,action,direction:b.dataset.dir,title:el('dtitle').value,day:el('dday').value};
-    try{const r=await fetch('control',{method:'POST',headers:{'Content-Type':'application/json','X-DVR-Control':'1'},body:JSON.stringify(data)});
-    const msg=await r.json();
-    if(data.device!==d.value||data.channel!==ch.value||data.day!==el('dday').value)return;
-    if(action==='recordings'){const list=el('intervals');list.replaceChildren();
-      if(r.ok)for(const line of msg.split('\\n')){const parts=line.split(' — ');if(parts.length!==2)continue;
-        const item=document.createElement('button');item.textContent=line;item.onclick=()=>{el('dday').value=parts[0].slice(0,10);el('dtime').value=parts[0].slice(11,19);until=instant(parts[1]);watch();};list.append(item);}
-      el('dresult').textContent=list.children.length?'Selecione uma gravação.':(r.ok?msg:'Lista indisponível. Você pode tentar reproduzir pelo horário.');return;}
-    el('dresult').textContent=msg;if(action==='title'&&r.ok)el('dtitle').value=msg;}
-    catch{el('dresult').textContent='Falha ao comunicar com o add-on.'}}})();</script>'''.replace('DEVICES', devices)
