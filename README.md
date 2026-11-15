@@ -111,7 +111,7 @@ A mesma página traz o bloco **Configuração para o Frigate**, com uma câmera 
 
 O add-on abre um túnel até cada gravador pelos servidores do Intelbras Cloud, usando a biblioteca P2P do fabricante, e republica o RTSP do gravador com o [mediamtx](https://github.com/bluenviron/mediamtx). O vídeo pode passar pelos servidores de retransmissão da Intelbras, então a qualidade depende da internet dos dois lados.
 
-O stream principal do primeiro canal de cada gravador fica sempre aberto para manter o túnel ativo. Os demais só abrem quando um cliente pede vídeo, de modo que canais sem uso não consomem processamento nem banda.
+O stream secundário do primeiro canal de cada gravador fica sempre aberto para manter o túnel ativo. Os demais só abrem quando um cliente pede vídeo, de modo que canais sem uso não consomem processamento nem banda.
 
 ## Avançado
 

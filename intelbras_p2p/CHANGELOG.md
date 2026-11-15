@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.7
+
+- Menos uso de CPU: o túnel de cada gravador passa a ser mantido pelo stream secundário do primeiro canal, e não mais pelo principal. O stream principal só abre quando um cliente pede.
+
 ## 1.0.6
 
 - O log passa a dizer o estado do túnel de cada gravador: conectando, conectado, gravador offline ou serial incorreto, chave ou senha P2P recusada, servidor P2P sem resposta, e túnel conectado mas sem vídeo.

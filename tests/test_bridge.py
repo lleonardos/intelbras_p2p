@@ -34,7 +34,7 @@ def test_configure_generates_streams_and_ports():
     config = start.configure(options(gravadores=[recorder(), recorder(nome='casa')]), PROFILE)
     first, second = config['devices']
     assert [s['name'] for s in first['streams']] == ['sitio_ch1', 'sitio_ch1_sub', 'sitio_ch2', 'sitio_ch2_sub']
-    assert [s['on_demand'] for s in first['streams']] == [False, True, True, True]
+    assert [s['on_demand'] for s in first['streams']] == [True, False, True, True]
     assert first['streams'][1]['path'] == '/cam/realmonitor?channel=1&subtype=1'
     assert first['p2p']['uuid'] == 'ABC123'
     assert (first['p2p']['local_port'], second['p2p']['local_port']) == (15541, 15542)
@@ -70,9 +70,10 @@ def test_configure_rejects_non_object_profile():
 
 def test_prepare_builds_mediamtx_config():
     media, tunnels = bridge.prepare(start.configure(options(), PROFILE))
-    assert media['paths']['sitio_ch1'] == {
-        'source': 'rtsp://admin:p%40ss%3A%2F%23@127.0.0.1:15541/cam/realmonitor?channel=1&subtype=0',
+    assert media['paths']['sitio_ch1_sub'] == {
+        'source': 'rtsp://admin:p%40ss%3A%2F%23@127.0.0.1:15541/cam/realmonitor?channel=1&subtype=1',
         'rtspTransport': 'tcp'}
+    assert media['paths']['sitio_ch1']['sourceOnDemand'] is True
     assert media['paths']['sitio_ch2']['sourceOnDemand'] is True
     assert media['rtspAddress'] == ':8554' and media['apiAddress'] == '127.0.0.1:9997'
     assert all(media[server] is False for server in ('rtmp', 'hls', 'webrtc', 'srt', 'moq'))
@@ -81,7 +82,7 @@ def test_prepare_builds_mediamtx_config():
     assert tunnels == [{'T2U_SERVER': 'p2p.example.test', 'T2U_SERVER_PORT': '8800', 'T2U_SERVER_KEY': 'k',
                         'T2U_REMOTE_IP': '127.0.0.1', 'T2U_UUID': 'ABC123', 'T2U_REMOTE_PORT': '554',
                         'T2U_LOCAL_PORT': '15541'}]
-    assert bridge.required_paths(media['paths']) == {'sitio_ch1'}
+    assert bridge.required_paths(media['paths']) == {'sitio_ch1_sub'}
 
 
 def test_prepare_rtsp_mode_has_no_tunnel():
@@ -258,10 +259,10 @@ def test_configure_uses_channel_list():
     streams = config['devices'][0]['streams']
     assert [s['name'] for s in streams] == ['sitio_ch3', 'sitio_ch3_sub', 'sitio_ch4', 'sitio_ch4_sub',
                                             'sitio_ch9', 'sitio_ch9_sub']
-    assert [s['on_demand'] for s in streams] == [False, True, True, True, True, True]  # first listed keeps alive
+    assert [s['on_demand'] for s in streams] == [True, False, True, True, True, True]  # first listed keeps alive
     assert streams[4]['path'] == '/cam/realmonitor?channel=9&subtype=0'
     media, _ = bridge.prepare(config)
-    assert bridge.required_paths(media['paths']) == {'sitio_ch3'}
+    assert bridge.required_paths(media['paths']) == {'sitio_ch3_sub'}
     # An empty list falls back to the channel count.
     config = start.configure(options(gravadores=[recorder(canais=1, canais_em_uso=' ')]), PROFILE)
     assert [s['name'] for s in config['devices'][0]['streams']] == ['sitio_ch1', 'sitio_ch1_sub']

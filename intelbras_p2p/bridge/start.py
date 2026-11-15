@@ -60,10 +60,11 @@ def configure(options, profile):
         streams = []
         for channel in channels:
             for subtype, suffix in ((0, ''), (1, '_sub')):
-                # The main stream of the first channel stays connected to keep the recorder tunnel alive.
+                # The low-bitrate stream of the first channel stays connected to keep the recorder tunnel
+                # alive; every byte crosses the SDK under Wine, so the main stream is too costly for this.
                 streams.append({'name': f'{name}_ch{channel}{suffix}',
                                 'path': f'/cam/realmonitor?channel={channel}&subtype={subtype}',
-                                'on_demand': channel != channels[0] or subtype != 0})
+                                'on_demand': channel != channels[0] or subtype != 1})
         devices.append({'mode': 'p2p', 'name': name, 'username': recorder['usuario'], 'password': recorder['senha'],
                         'p2p': {**profile, 'uuid': recorder['serial'].strip(), 'remote_port': 554,
                                 'local_port': FIRST_LOCAL_PORT + index}, 'streams': streams})
