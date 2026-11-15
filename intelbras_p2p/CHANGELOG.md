@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.5.0
+
+- Dois controles novos por canal no Home Assistant: área mínima de movimento e tempo de filtragem de movimento, úteis contra falsos positivos de chuva.
+
 ## 1.4.0
 
 - Novos sensores por canal no Home Assistant: câmera tampada e, onde o gravador tem a função ligada, pessoa, veículo, linha virtual, cerca virtual e face.

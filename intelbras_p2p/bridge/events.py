@@ -32,9 +32,15 @@ CODES = {
 # Every configured channel gets these; the others appear when the recorder has the function enabled on the
 # channel or the first time the event arrives, so recorders without them do not get dozens of dead entities.
 BASE_CODES = ('VideoMotion', 'VideoLoss', 'VideoBlind')
-# Settings that can be changed from Home Assistant: key -> (entity type, name).
-CONTROLS = {'motion_detection': ('switch', 'detecção de movimento'),
-            'motion_sensitivity': ('number', 'sensibilidade de movimento')}
+# Settings that can be changed from Home Assistant:
+# key -> (name, setting under MotionDetect[channel], (minimum, maximum, unit) for numbers or None for a switch).
+# The recorders accept any number, so the limits are enforced here.
+CONTROLS = {
+    'motion_detection': ('detecção de movimento', 'Enable', None),
+    'motion_sensitivity': ('sensibilidade de movimento', 'MotionDetectWindow[0].Sensitive', (0, 100, None)),
+    'motion_threshold': ('área mínima de movimento', 'MotionDetectWindow[0].Threshold', (0, 100, None)),
+    'motion_dejitter': ('tempo de filtragem de movimento', 'EventHandler.Dejitter', (0, 600, 's')),
+}
 EVENT_RE = re.compile(r'Code=(\w+);action=(Start|Stop|Pulse);index=(\d+)')
 INDEX_RE = re.compile(r'channels\[\d+\]=(\d+)')
 COMMAND_RE = re.compile(re.escape(PREFIX) + r'/([a-z0-9_-]+)/ch(\d{1,2})/(' + '|'.join(CONTROLS) + ')/set')
@@ -65,13 +71,19 @@ def truthy(text):
 
 
 def parse_motion(body, channel):
-    """(enabled, sensitivity) of one channel from configManager getConfig MotionDetect[channel - 1]."""
-    prefix = re.escape(f'MotionDetect[{channel - 1}].')
-    enable = re.search(prefix + r'Enable=(\S+)', body)
-    sensitive = re.search(prefix + r'MotionDetectWindow\[0\]\.Sensitive=(\d+)', body)
-    if not enable or not sensitive:
+    """{control: value} of one channel from configManager getConfig MotionDetect[channel - 1].
+
+    Switches come as booleans and numbers as integers; a setting the firmware does not report is left out."""
+    values = {}
+    for control, (_, setting, limits) in CONTROLS.items():
+        match = re.search(re.escape(f'MotionDetect[{channel - 1}].{setting}') + r'=(\S+)', body)
+        if match and limits is None:
+            values[control] = truthy(match[1])
+        elif match and match[1].isdigit():
+            values[control] = int(match[1])
+    if 'motion_detection' not in values:
         raise ValueError('MotionDetect')
-    return truthy(enable[1]), int(sensitive[1])
+    return values
 
 
 def enabled_functions(rules, smart, channels):
@@ -97,12 +109,13 @@ def parse_command(topic, payload, channels):
     if not match or int(match[2]) not in channels.get(match[1], ()):
         return None
     text = payload.decode('ascii', errors='replace').strip() if isinstance(payload, bytes) else str(payload).strip()
-    if match[3] == 'motion_detection':
+    limits = CONTROLS[match[3]][2]
+    if limits is None:
         if text not in ('ON', 'OFF'):
             return None
         value = text == 'ON'
     else:
-        if not re.fullmatch(r'\d{1,3}(\.0+)?', text) or not 0 <= int(float(text)) <= 100:
+        if not re.fullmatch(r'\d{1,3}(\.0+)?', text) or not limits[0] <= int(float(text)) <= limits[1]:
             return None
         value = int(float(text))
     return match[1], int(match[2]), match[3], value
@@ -131,13 +144,16 @@ def discovery(device, channel, code):
 
 def control_discovery(device, channel, control):
     """Topic and payload announcing one setting (switch or number) of a channel."""
-    kind, label = CONTROLS[control]
+    label, _, limits = CONTROLS[control]
+    kind = 'number' if limits else 'switch'
     topic = state_topic(device, channel, control)
     payload = {'name': f'Canal {channel} {label}', 'unique_id': f'{PREFIX}_{device}_ch{channel}_{control}',
                'state_topic': topic, 'command_topic': topic + '/set', 'entity_category': 'config',
                **availability(device), 'device': device_block(device)}
-    if kind == 'number':
-        payload.update(min=0, max=100, step=1, mode='box')
+    if limits:
+        payload.update(min=limits[0], max=limits[1], step=1, mode='box')
+        if limits[2]:
+            payload['unit_of_measurement'] = limits[2]
     return f'{DISCOVERY_PREFIX}/{kind}/{PREFIX}_{device}/ch{channel}_{control}/config', payload
 
 
@@ -269,9 +285,9 @@ class Manager(threading.Thread):
             pass
 
     def read_motion(self, channel):
-        enabled, sensitivity = parse_motion(self.recorder.config(f'MotionDetect[{channel - 1}]'), channel)
-        self.hub.set_value(state_topic(self.device, channel, 'motion_detection'), 'ON' if enabled else 'OFF')
-        self.hub.set_value(state_topic(self.device, channel, 'motion_sensitivity'), str(sensitivity))
+        for control, value in parse_motion(self.recorder.config(f'MotionDetect[{channel - 1}]'), channel).items():
+            text = ('ON' if value else 'OFF') if CONTROLS[control][2] is None else str(value)
+            self.hub.set_value(state_topic(self.device, channel, control), text)
 
     def refresh(self):
         status = self.recorder.guarded(self.recorder.status)
@@ -288,11 +304,9 @@ class Manager(threading.Thread):
             self.hub.add_sensor(self.device, channel, code)
 
     def apply(self, channel, control, value):
-        index = channel - 1
-        if control == 'motion_detection':
-            self.recorder.set_config(f'MotionDetect[{index}].Enable', 'true' if value else 'false')
-        else:
-            self.recorder.set_config(f'MotionDetect[{index}].MotionDetectWindow[0].Sensitive', str(value))
+        _, setting, limits = CONTROLS[control]
+        text = ('true' if value else 'false') if limits is None else str(int(value))
+        self.recorder.set_config(f'MotionDetect[{channel - 1}].{setting}', text)
         self.read_motion(channel)  # the entity shows what the recorder stored, never what was asked
 
     def run(self):

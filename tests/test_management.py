@@ -154,8 +154,8 @@ def test_hub_publish_all_announces_entities_then_states():
     topics = [topic for topic, _ in sent]
     assert sent[0] == ('intelbras_p2p/status', 'online')
     configs = {topic: json.loads(text) for topic, text in sent if topic.endswith('/config')}
-    # Two channels: three event sensors and two controls each, plus four recorder diagnostics.
-    assert len(configs) == 14 and len({config['unique_id'] for config in configs.values()}) == 14
+    # Two channels: three event sensors and four controls each, plus four recorder diagnostics.
+    assert len(configs) == 18 and len({config['unique_id'] for config in configs.values()}) == 18
     motion = configs['homeassistant/binary_sensor/intelbras_p2p_sitio/ch3_motion/config']
     assert motion['state_topic'] == 'intelbras_p2p/sitio/ch3/motion' and motion['device_class'] == 'motion'
     assert {entry['topic'] for entry in motion['availability']} == {'intelbras_p2p/status', 'intelbras_p2p/sitio/status'}
@@ -163,6 +163,9 @@ def test_hub_publish_all_announces_entities_then_states():
     assert switch['command_topic'] == switch['state_topic'] + '/set' == 'intelbras_p2p/sitio/ch1/motion_detection/set'
     number = configs['homeassistant/number/intelbras_p2p_sitio/ch3_motion_sensitivity/config']
     assert (number['min'], number['max'], number['entity_category']) == (0, 100, 'config')
+    dejitter = configs['homeassistant/number/intelbras_p2p_sitio/ch1_motion_dejitter/config']
+    assert (dejitter['max'], dejitter['unit_of_measurement']) == (600, 's') and 'unit_of_measurement' not in number
+    assert 'homeassistant/number/intelbras_p2p_sitio/ch3_motion_threshold/config' in configs
     assert configs['homeassistant/sensor/intelbras_p2p_sitio/firmware/config']['entity_category'] == 'diagnostic'
     assert all(config['device']['identifiers'] == ['intelbras_p2p_sitio'] for config in configs.values())
     assert topics.index('intelbras_p2p/sitio/ch3/motion') > max(i for i, topic in enumerate(topics) if topic.endswith('/config'))
@@ -180,6 +183,11 @@ def test_hub_publish_all_announces_entities_then_states():
     ('intelbras_p2p/outro/ch1/motion_detection/set', b'ON', None),            # unknown recorder
     ('intelbras_p2p/sitio/ch1/motion_detection/set', b'on', None),
     ('intelbras_p2p/sitio/ch1/motion_sensitivity/set', b'101', None),
+    ('intelbras_p2p/sitio/ch3/motion_threshold/set', b'30', ('sitio', 3, 'motion_threshold', 30)),
+    ('intelbras_p2p/sitio/ch3/motion_threshold/set', b'101', None),
+    ('intelbras_p2p/sitio/ch1/motion_dejitter/set', b'600', ('sitio', 1, 'motion_dejitter', 600)),
+    ('intelbras_p2p/sitio/ch1/motion_dejitter/set', b'601', None),
+    ('intelbras_p2p/sitio/ch1/motion_dejitter/set', b'ON', None),
     ('intelbras_p2p/sitio/ch1/motion_sensitivity/set', b'-1', None),
     ('intelbras_p2p/sitio/ch1/motion_sensitivity/set', b'80&Enable=false', None),
     ('intelbras_p2p/sitio/ch1/Enable/set', b'ON', None),
@@ -205,8 +213,11 @@ def test_command_ignores_retained_and_unmanaged_messages():
 def test_parse_motion_and_boolean_styles():
     body = ('table.MotionDetect[2].Enable=true\r\ntable.MotionDetect[2].MotionDetectWindow[0].Sensitive=80\r\n'
             'table.MotionDetect[2].MotionDetectWindow[1].Sensitive=10\r\n')
-    assert events.parse_motion(body, 3) == (True, 80)
-    assert events.parse_motion(body.replace('=true', '=0'), 3) == (False, 80)
+    assert events.parse_motion(body, 3) == {'motion_detection': True, 'motion_sensitivity': 80}
+    assert events.parse_motion(body.replace('=true', '=0'), 3) == {'motion_detection': False, 'motion_sensitivity': 80}
+    full = body + 'table.MotionDetect[2].MotionDetectWindow[0].Threshold=5\r\ntable.MotionDetect[2].EventHandler.Dejitter=15\r\n'
+    assert events.parse_motion(full, 3) == {'motion_detection': True, 'motion_sensitivity': 80, 'motion_threshold': 5,
+                                            'motion_dejitter': 15}
     with pytest.raises(ValueError):
         events.parse_motion(body, 1)
     assert [events.truthy(text) for text in ('true', 'True', '1', 'false', '0', '')] == [True, True, True, False, False, False]
@@ -228,6 +239,7 @@ class FakeRecorder:
 
     def __init__(self):
         self.table = {1: [True, 80], 3: [False, 55]}
+        self.extra = {}
         self.writes = []
 
     def guarded(self, action, *args):
@@ -241,7 +253,9 @@ class FakeRecorder:
             index = int(name[13:-1])
             enabled, sensitivity = self.table[index + 1]
             return (f'table.MotionDetect[{index}].Enable={str(enabled).lower()}\n'
-                    f'table.MotionDetect[{index}].MotionDetectWindow[0].Sensitive={sensitivity}\n')
+                    f'table.MotionDetect[{index}].MotionDetectWindow[0].Sensitive={sensitivity}\n'
+                    f'table.MotionDetect[{index}].MotionDetectWindow[0].Threshold={self.extra.get(("Threshold", index), 0)}\n'
+                    f'table.MotionDetect[{index}].EventHandler.Dejitter={self.extra.get(("Dejitter", index), 5)}\n')
         if name == 'VideoAnalyseRule':
             return 'table.VideoAnalyseRule[2][0].Type=CrossLineDetection\ntable.VideoAnalyseRule[2][0].Enable=true\n'
         return ''
@@ -251,6 +265,8 @@ class FakeRecorder:
         index = int(key[13:key.index(']')])
         if key.endswith('.Enable'):
             self.table[index + 1][0] = value == 'true'
+        elif key.endswith(('.Threshold', '.Dejitter')):
+            self.extra[key.rsplit('.', 1)[1], index] = int(value)
         else:
             self.table[index + 1][1] = int(value) // 5 * 5
 
@@ -270,6 +286,10 @@ def test_manager_mirrors_settings_and_applies_commands():
     assert recorder.writes == [('MotionDetect[2].MotionDetectWindow[0].Sensitive', '77'), ('MotionDetect[0].Enable', 'false')]
     assert ('intelbras_p2p/sitio/ch3/motion_sensitivity', '75') in sent   # what the recorder stored, not what was asked
     assert ('intelbras_p2p/sitio/ch1/motion_detection', 'OFF') in sent
+    manager.apply(3, 'motion_threshold', 30)
+    manager.apply(1, 'motion_dejitter', 20)
+    assert recorder.writes[2:] == [('MotionDetect[2].MotionDetectWindow[0].Threshold', '30'), ('MotionDetect[0].EventHandler.Dejitter', '20')]
+    assert ('intelbras_p2p/sitio/ch3/motion_threshold', '30') in sent and ('intelbras_p2p/sitio/ch1/motion_dejitter', '20') in sent
 
 
 def test_listener_logs_an_unmapped_event_once(capsys):

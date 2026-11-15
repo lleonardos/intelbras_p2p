@@ -142,7 +142,11 @@ Os sensores da coluna "quando" também são criados na primeira vez que o evento
 | Controle | O que altera no gravador |
 |---|---|
 | Canal N detecção de movimento | Liga ou desliga a detecção de movimento do canal. |
-| Canal N sensibilidade de movimento | Sensibilidade da detecção, de 0 a 100. |
+| Canal N sensibilidade de movimento | Sensibilidade da detecção, de 0 a 100. Valores menores reagem a menos mudanças na imagem. |
+| Canal N área mínima de movimento | Quanto da área monitorada precisa mudar para disparar, de 0 a 100. Em 0, qualquer mudança dispara. |
+| Canal N tempo de filtragem de movimento | Tempo, em segundos (0 a 600), que o gravador mantém um evento antes de encerrá-lo. Valores maiores juntam disparos seguidos em um só. |
+
+Contra falsos positivos de chuva, insetos ou folhas, reduza a sensibilidade e aumente a área mínima aos poucos, conferindo o resultado.
 
 O valor mostrado é sempre o que o gravador confirmou depois da alteração. Desligar a detecção de movimento de um canal também afeta a gravação por movimento do próprio gravador. Qualquer cliente com acesso ao broker MQTT pode enviar esses comandos.
 
@@ -186,7 +190,7 @@ O que cada função alcança depende do modelo, do firmware e das permissões do
 | Função | MHDX 1116 | MHDX 3116-C |
 |---|---|---|
 | Sensores de movimento e sem vídeo | Funciona | Funciona |
-| Controles de detecção e sensibilidade de movimento | Funciona | Funciona |
+| Controles de movimento (detecção, sensibilidade, área mínima e filtragem) | Funciona | Funciona |
 | Diagnóstico do gravador | Funciona | Funciona |
 | Sensores de linha e cerca virtual | Criados; disparo não observado | Não tem a função |
 | Sensores de pessoa, veículo, face e câmera tampada | Disparo não observado | Disparo não observado |
