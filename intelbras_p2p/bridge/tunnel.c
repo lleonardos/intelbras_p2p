@@ -84,6 +84,9 @@ int main(int argc, char **argv) {
     slow_short_waits(dll);
     init(server, server_port, key);
     int result = add(uuid, password ? password : "", remote_ip, remote_port, local_port);
+    if (getenv("T2U_HTTP_LOCAL")) {
+        add(uuid, password ? password : "", remote_ip, port("T2U_HTTP_REMOTE"), port("T2U_HTTP_LOCAL"));
+    }
     printf("t2u_add_port_v3 returned %d; stream readiness is checked separately\n", result);
     fflush(stdout);
     /* Report "server port query" codes to a file whenever they change; the bridge turns them into

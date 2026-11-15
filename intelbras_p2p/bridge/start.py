@@ -4,6 +4,7 @@ import re
 import sys
 from pathlib import Path
 
+import events
 import main as bridge
 import urls
 
@@ -68,6 +69,9 @@ def configure(options, profile):
         devices.append({'mode': 'p2p', 'name': name, 'username': recorder['usuario'], 'password': recorder['senha'],
                         'p2p': {**profile, 'uuid': recorder['serial'].strip(), 'remote_port': 554,
                                 'local_port': FIRST_LOCAL_PORT + index}, 'streams': streams})
+        if recorder.get('gerenciamento', False):
+            devices[-1]['management_local_port'] = 35541 + index
+            devices[-1]['management_remote_port'] = recorder.get('porta_http', 80)
     return {'output_auth': {'username': options['usuario_rtsp'], 'password': options['senha_rtsp']},
             'devices': devices}
 
@@ -115,4 +119,8 @@ if __name__ == '__main__':
         print('Endereços RTSP: clique em "Abrir interface web" na página do add-on.', flush=True)
     except OSError:
         print('A página de endereços RTSP não pôde ser iniciada; o vídeo não é afetado.', flush=True)
+    try:
+        events.start(settings)
+    except Exception as exc:  # optional feature: whatever goes wrong here must not stop the video
+        print(f'Eventos dos gravadores indisponíveis ({type(exc).__name__}); o vídeo não é afetado.', flush=True)
     sys.exit(bridge.main(settings))

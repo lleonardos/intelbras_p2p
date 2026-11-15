@@ -53,6 +53,15 @@ def prepare(config):
                 raise ValueError('Duplicate or reserved local port')
             ports.add(p['local_port'])
             tunnels.append({'T2U_' + k.upper(): str(v) for k, v in p.items()})
+            if 'management_local_port' in device:
+                for key in ('management_local_port', 'management_remote_port'):
+                    if type(device.get(key)) is not int or not 1 <= device[key] <= 65535:
+                        raise ValueError('Invalid port: ' + key)
+                if device['management_local_port'] in ports | {RTSP_PORT, API_PORT}:
+                    raise ValueError('Duplicate or reserved local port')
+                ports.add(device['management_local_port'])
+                tunnels[-1]['T2U_HTTP_LOCAL'] = str(device['management_local_port'])
+                tunnels[-1]['T2U_HTTP_REMOTE'] = str(device['management_remote_port'])
             host = '127.0.0.1:' + str(p['local_port'])
         else:
             host = device['host']

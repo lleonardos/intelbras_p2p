@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.0
+
+- Gerenciamento opcional por gravador (`gerenciamento` e `porta_http`), desligado por padrão.
+- Painel na interface web: estado do DVR (modelo, firmware, relógio e discos), nome do canal, PTZ, busca de gravações e reprodução de trechos de até 30 segundos.
+- Sensores de movimento e de perda de vídeo por canal no Home Assistant, via MQTT, quando há um broker disponível.
+- A busca e a reprodução de gravações dependem do firmware: funcionaram no MHDX 1116 e não no MHDX 3116-C.
+
 ## 1.0.8
 
 - Uso de CPU muito menor: a biblioteca P2P fazia esperas de 1 ms em dezenas de threads, o que ocupava cerca de um núcleo por gravador. Essas esperas agora têm um mínimo de 30 ms.

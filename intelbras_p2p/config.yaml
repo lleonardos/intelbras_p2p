@@ -1,11 +1,13 @@
 name: Intelbras P2P
-version: "1.0.8"
+version: "1.2.0"
 slug: intelbras_p2p
 description: Conecte gravadores Intelbras Cloud por P2P e acesse os canais por RTSP.
 arch: [amd64]
 startup: services
 boot: auto
 init: false
+services:
+  - mqtt:want
 ingress: true
 ingress_port: 8099
 ports:
@@ -28,6 +30,8 @@ schema:
       senha: password
       canais: "int(1,64)?"
       canais_em_uso: str?
+      gerenciamento: bool?
+      porta_http: "int(1,65535)?"
 map:
   - type: addon_config
     read_only: true

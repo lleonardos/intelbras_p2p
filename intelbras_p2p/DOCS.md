@@ -7,3 +7,15 @@ Com o add-on iniciado, clique em **Abrir interface web** para ver os endereços 
 O stream secundário do primeiro canal de cada gravador mantém a conexão ativa. Os demais abrem quando um cliente pede vídeo. A aba **Log** mostra o estado de cada gravador, por exemplo `Gravador NOME: túnel conectado.` ou `Gravador NOME: gravador offline ou serial incorreto.` A mensagem `túnel conectado, mas sem vídeo` indica que o gravador foi alcançado, mas recusou o usuário, a senha ou o canal. A implementação usa o RTSP do gravador na porta 554 e foi testada com os modelos MHDX 3116-C e MHDX 1116. Requer Home Assistant com Supervisor em Intel ou AMD de 64 bits.
 
 Opcionalmente, um profile.json na pasta deste add-on em /addon_configs/ pode sobrescrever `server`, `server_port`, `remote_ip`, `server_key` e `password`, que por padrão usam os valores da Intelbras Cloud. Os campos da aba Configuração, quando preenchidos, têm prioridade sobre o arquivo.
+
+## Gerenciamento do DVR
+
+Ative `gerenciamento` no cadastro de cada gravador, ajuste `porta_http` se necessário (padrão 80), salve e reinicie. Em **Abrir interface web**, selecione o DVR e o canal. É possível consultar e alterar o nome exibido pelo gravador, enviar pulsos de direção e zoom para câmeras PTZ e listar até 1.000 intervalos gravados por dia, no horário do DVR. As operações dependem da permissão do usuário e do firmware.
+
+**Estado do DVR** mostra modelo, firmware, relógio, discos e os canais com movimento ou sem vídeo naquele momento.
+
+### Sensores de eventos
+Com `gerenciamento` ativo e um broker MQTT no Home Assistant (por exemplo, o add-on Mosquitto, com a integração MQTT configurada), cada canal ganha um sensor de movimento e um de perda de vídeo, agrupados no dispositivo **Intelbras NOME** da integração MQTT. O movimento é o detectado pelo próprio gravador. Sem broker, os eventos aparecem apenas em **Estado do DVR**. A aba **Log** informa qual dos dois casos vale e quando a conexão de eventos de cada gravador cai ou volta.
+
+### Reprodução do histórico
+Selecione um intervalo da busca ou informe a data e o horário local do DVR. O painel prepara até 30 segundos de vídeo sem áudio por vez. Use **Próximos 30 s** para continuar. O vídeo temporário é removido após a transmissão. A reprodução por horário também pode ser usada quando a listagem do firmware estiver indisponível. Nos modelos testados, a busca e a reprodução funcionaram no MHDX 1116 e não no MHDX 3116-C.
