@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.6.0
+
+- Interface web: ao clicar em uma câmera de um gravador com gerenciamento, o botão **Configurações de vídeo e áudio** lê e altera codec, resolução, quadros por segundo, controle de bitrate, bitrate, qualidade, intervalo de quadros-chave e áudio do stream principal e do secundário. Ainda não testado em um gravador real.
+
 ## 1.5.0
 
 - Dois controles novos por canal no Home Assistant: área mínima de movimento e tempo de filtragem de movimento, úteis contra falsos positivos de chuva.

@@ -107,6 +107,13 @@ textarea { resize: vertical; white-space: pre; }
 .ptz { display: flex; gap: 14px; align-items: center; margin-top: 12px; }
 .note { min-height: 1.45em; margin: 8px 0 0; font-size: 13px; color: var(--muted); }
 .note.err { color: var(--loss); }
+.detail > .wide { grid-column: 1 / -1; border-top: 1px solid var(--line); padding-top: 12px; }
+.streams { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 18px; margin-top: 12px; }
+.streams:empty { display: none; }
+.stream input, .stream select { background: var(--panel); }
+.stream input[readonly] { background: transparent; color: var(--muted); }
+.stream .btn { margin-top: 12px; }
+.hint { font-size: 12px; color: var(--muted); margin: 3px 0 0; }
 
 .fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
 .day { position: relative; height: 46px; margin: 16px 0 22px; border-radius: 8px; background: var(--screen); cursor: crosshair; }
@@ -294,6 +301,75 @@ function openDetail(rec, channel) {
     right.append(go, note);
   }
   wall.detail.replaceChildren(left, right); wall.detail.hidden = false;
+  if (rec.managed) wall.detail.append(encodePanel(rec, channel));
+}
+/* Video and audio settings of a channel, read from the recorder only when asked for. */
+const streamNames = { main: 'Stream principal', sub: 'Stream secundário' };
+function encodePanel(rec, channel) {
+  const box = el('div', 'wide'), streams = el('div', 'streams'), note = el('p', 'note'); note.setAttribute('role', 'status');
+  const open = el('button', 'btn small', 'Configurações de vídeo e áudio');
+  function field(info, id) {
+    const wrap = el('div'), limited = info.min != null;
+    const label = el('label', '', info.label + (info.unit ? ' (' + info.unit + ')' : '') + (limited ? ', ' + info.min + ' a ' + info.max : '')); label.htmlFor = id;
+    let input, read = null;
+    if (typeof info.value === 'boolean') {
+      input = el('select'); input.add(new Option('Ligado', '1')); input.add(new Option('Desligado', '0'));
+      input.value = info.value ? '1' : '0'; read = () => input.value === '1';
+    } else if (info.options) {
+      input = el('select'); for (const option of info.options) input.add(new Option(option, option));
+      input.value = info.value; read = () => input.value;
+    } else if (limited) {
+      input = el('input'); input.type = 'number'; input.min = info.min; input.max = info.max; input.step = 1;
+      input.value = info.value; read = () => Number(input.value);
+    } else { input = el('input'); input.readOnly = true; input.value = info.value; input.title = 'O gravador não informou os valores aceitos.'; }
+    input.id = id; wrap.append(label, input);
+    if (info.unsupported && info.unsupported.length) wrap.append(el('p', 'hint', 'O gravador também lista: ' + info.unsupported.join(', ') + ' (não ajustáveis por aqui).'));
+    return [wrap, read];
+  }
+  function paint(result) {
+    streams.replaceChildren();
+    for (const stream of ['main', 'sub']) {
+      if (!result[stream]) continue;
+      const form = el('div', 'stream'), grid = el('div', 'fields'), readers = {};
+      form.append(el('h3', '', streamNames[stream]), grid);
+      for (const info of result[stream]) {
+        const [wrap, read] = field(info, 'enc-' + rec.name + '-' + channel + '-' + stream + '-' + info.key);
+        if (read) readers[info.key] = read;
+        grid.append(wrap);
+      }
+      const save = el('button', 'btn', 'Salvar ' + streamNames[stream].toLowerCase());
+      save.onclick = async () => {
+        const values = {};
+        for (const info of result[stream]) {
+          if (!readers[info.key]) continue;
+          const value = readers[info.key]();
+          if (info.min != null && !(Number.isInteger(value) && value >= info.min && value <= info.max)) { say(note, info.label + ': informe um número inteiro de ' + info.min + ' a ' + info.max + '.', true); return; }
+          if (value !== info.value) values[info.key] = value;
+        }
+        if (!Object.keys(values).length) { say(note, 'Nenhum valor foi alterado.'); return; }
+        if (!confirm('Gravar estas configurações do ' + streamNames[stream].toLowerCase() + ' no gravador? O vídeo do canal pode reiniciar, e mudanças de codec ou resolução podem exigir ajuste no Frigate.')) return;
+        save.disabled = true; say(note, 'Gravando no gravador…');
+        try {
+          const stored = await control({ device: rec.name, channel, action: 'encode_set', stream, values });
+          // A recorder may answer OK and still keep or adjust a value: say so instead of claiming success.
+          const kept = (stored[stream] || []).filter(info => info.key in values && info.value !== values[info.key]).map(info => info.label);
+          paint(stored);
+          if (kept.length) say(note, 'O gravador não aplicou como pedido: ' + kept.join(', ') + '. Os valores mostrados são os que ele guardou.', true);
+          else say(note, 'Salvo. Os valores mostrados são os que o gravador confirmou.');
+        }
+        catch (error) { say(note, error.message || 'Sem resposta do add-on.', true); save.disabled = false; }
+      };
+      form.append(save); streams.append(form);
+    }
+  }
+  open.onclick = async () => {
+    open.disabled = true; say(note, 'Lendo as configurações do gravador…');
+    try { paint(await control({ device: rec.name, channel, action: 'encode' })); say(note, ''); open.textContent = 'Reler configurações de vídeo e áudio'; }
+    catch (error) { say(note, error.message || 'Sem resposta do add-on.', true); }
+    open.disabled = false;
+  };
+  box.append(open, streams, note);
+  return box;
 }
 function loadTile(rec, channel, fresh) {
   const tile = walls[rec.name].tiles[channel], stream = rec.name + '_ch' + channel;

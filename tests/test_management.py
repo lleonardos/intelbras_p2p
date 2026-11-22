@@ -353,6 +353,115 @@ def test_titles_and_rename(monkeypatch):
         recorder.run({'action': 'ptz', 'channel': 1, 'direction': 'Reboot'})
 
 
+# Channel 3 in the format of the HTTP API specification; a recorder answers with every stream of the channel.
+ENCODE = '''table.Encode[2].MainFormat[0].Audio.Bitrate=64
+table.Encode[2].MainFormat[0].Audio.Compression=G.711A
+table.Encode[2].MainFormat[0].AudioEnable=true
+table.Encode[2].MainFormat[0].Video.resolution=1920x1080
+table.Encode[2].MainFormat[0].Video.BitRate=4096
+table.Encode[2].MainFormat[0].Video.BitRateControl=CBR
+table.Encode[2].MainFormat[0].Video.Compression=H.264
+table.Encode[2].MainFormat[0].Video.FPS=18
+table.Encode[2].MainFormat[0].Video.GOP=36
+table.Encode[2].MainFormat[0].Video.Height=1080
+table.Encode[2].MainFormat[0].Video.Quality=4
+table.Encode[2].MainFormat[0].Video.QualityRange=6
+table.Encode[2].MainFormat[0].Video.Width=1920
+table.Encode[2].MainFormat[1].Video.Compression=MJPG
+table.Encode[2].ExtraFormat[0].AudioEnable=false
+table.Encode[2].ExtraFormat[0].Video.BitRate=512
+table.Encode[2].ExtraFormat[0].Video.Compression=H.265
+table.Encode[2].ExtraFormat[0].Video.FPS=0.5
+table.Encode[2].ExtraFormat[0].Video.Height=480
+table.Encode[2].ExtraFormat[0].Video.Width=704
+'''.replace('\n', '\r\n')
+CAPS = '''caps.MainFormat[0].Audio.CompressionTypes=G.711A, AAC
+caps.MainFormat[0].Video.CompressionTypes=H.264,H.265
+caps.MainFormat[0].Video.ResolutionTypes=1080P,1080N, 1280 x 960,720P,5M-N,D1
+caps.MainFormat[0].Video.BitRateOptions=448,8192
+caps.MainFormat[0].Video.FPSMax=15
+caps.ExtraFormat[0].Video.CompressionTypes=H.264
+caps.ExtraFormat[0].Video.ResolutionTypes=D1,CIF
+'''
+
+
+def fields(form):
+    return {field['key']: field for field in form}
+
+
+def test_encode_form_shows_only_what_the_recorder_reported():
+    values = dvr_controls.encode_values(ENCODE, 3, 'MainFormat[0]')
+    assert values['Video.Compression'] == 'H.264' and values['Audio.Bitrate'] == '64'   # never the motion-record format
+    main = fields(dvr_controls.encode_form(values, dvr_controls.encode_caps(CAPS, 3, 'MainFormat[0]'), 'NTSC'))
+    assert list(main) == ['compression', 'resolution', 'fps', 'bitrate_control', 'bitrate', 'quality', 'gop', 'audio',
+                          'audio_compression']
+    assert main['compression']['options'] == ['H.264', 'H.265'] and main['audio_compression']['options'] == ['G.711A', 'AAC']
+    assert main['resolution']['value'] == '1920x1080' and main['resolution']['unsupported'] == ['5M-N']
+    assert main['resolution']['options'] == ['1920x1080', '960x1080', '1280x960', '1280x720', '704x480']
+    assert (main['fps']['value'], main['fps']['max']) == (18, 18)    # the current value always fits its own limits
+    assert (main['bitrate']['min'], main['bitrate']['max'], main['bitrate']['unit']) == (448, 8192, 'kbps')
+    assert main['audio']['value'] is True and (main['quality']['min'], main['quality']['max']) == (1, 6)
+    sub = fields(dvr_controls.encode_form(dvr_controls.encode_values(ENCODE, 3, 'ExtraFormat[0]'),
+                                          dvr_controls.encode_caps(CAPS, 3, 'ExtraFormat[0]'), 'PAL'))
+    assert list(sub) == ['compression', 'resolution', 'bitrate', 'audio']     # FPS below 1 and missing settings stay out
+    assert sub['compression']['options'] == ['H.265', 'H.264'] and sub['resolution']['options'] == ['704x480', '704x576', '352x288']
+    assert 'min' not in sub['bitrate'] and sub['audio']['value'] is False     # no limits reported: shown, not editable
+    bare = fields(dvr_controls.encode_form(values, {}))
+    assert 'options' not in bare['compression'] and 'options' not in bare['resolution'] and 'min' not in bare['bitrate']
+    assert dvr_controls.encode_form({}, {}) == [] and dvr_controls.encode_values(ENCODE, 1, 'MainFormat[0]') == {}
+
+
+def test_encode_caps_accepts_both_prefix_styles():
+    indexed = CAPS.replace('caps.', 'caps[2].') + 'caps[0].MainFormat[0].Video.FPSMax=30\n'
+    assert dvr_controls.encode_caps(indexed, 3, 'MainFormat[0]')['Video.FPSMax'] == '15'
+    assert dvr_controls.encode_caps(CAPS.replace('caps.', 'caps[0].'), 3, 'MainFormat[0]')['Video.FPSMax'] == '15'
+    assert dvr_controls.encode_caps('Error\r\nBad Request!', 3, 'MainFormat[0]') == {}
+    assert dvr_controls.size('D1', '') is None and dvr_controls.size('2048 x 1536', '') == '2048x1536'
+
+
+def test_encode_set_writes_one_request_and_returns_what_the_recorder_stored(monkeypatch):
+    sent = []
+    stored = [ENCODE]
+
+    def call(script, **params):
+        if params['action'] == 'setConfig':
+            sent.append(params)   # the recorder lowers the bitrate by itself when the resolution drops
+            stored[0] = (ENCODE.replace('Width=1920', 'Width=1280').replace('Height=1080', 'Height=720')
+                         .replace('Video.BitRate=4096', 'Video.BitRate=2048').replace('MainFormat[0].AudioEnable=true', 'MainFormat[0].AudioEnable=false'))
+            return 'OK'
+        if script == 'encode':
+            return CAPS
+        if params['name'] == 'VideoStandard':
+            raise OSError()   # optional: only the names that depend on it lose their size
+        return stored[0]
+
+    config = start.configure(options(gerenciamento=True), PROFILE)
+    recorder = dvr_controls.Recorder(config['devices'][0])
+    monkeypatch.setattr(recorder, 'call', call)
+    form = recorder.run({'action': 'encode', 'channel': 3})
+    assert set(form) == {'main', 'sub'} and fields(form['main'])['resolution']['unsupported'] == ['5M-N', 'D1']
+    change = {'action': 'encode_set', 'channel': 3, 'stream': 'main'}
+    result = recorder.run({**change, 'values': {'resolution': '1280x720', 'audio': False, 'fps': 18, 'compression': 'H.264'}})
+    assert sent == [{'action': 'setConfig', 'Encode[2].MainFormat[0].Video.Width': '1280',
+                     'Encode[2].MainFormat[0].Video.Height': '720', 'Encode[2].MainFormat[0].AudioEnable': 'false'}]
+    main = fields(result['main'])
+    assert (main['resolution']['value'], main['bitrate']['value'], main['audio']['value']) == ('1280x720', 2048, False)
+    del sent[:]
+    for values in ({'resolution': '3840x2160'}, {'resolution': '704x480'}, {'compression': 'MJPG'}, {'bitrate': 9000},
+                   {'bitrate': '2048&Encode[0].MainFormat[0].VideoEnable=false'}, {'fps': 19}, {'fps': 0}, {'fps': 10.0}, {'fps': True},
+                   {'audio': 'true'}, {'Video.Compression': 'H.265'}, {'profile': 'High'}, {}, {'fps': 18}, ['fps']):
+        with pytest.raises(ValueError):
+            recorder.run({**change, 'values': values})
+    for bad in ({**change, 'stream': 'MainFormat[1]', 'values': {'fps': 10}}, {**change, 'channel': 2, 'values': {'fps': 10}},
+                {'action': 'encode_set', 'channel': 3, 'stream': 'sub', 'values': {'bitrate': 256}}):   # sub has no limits
+        with pytest.raises(ValueError):
+            recorder.run(bad)
+    assert sent == [] and not recorder.lock.locked()
+    monkeypatch.setattr(recorder, 'call', lambda script, **params: '')
+    with pytest.raises(ValueError, match='firmware'):
+        recorder.run({'action': 'encode', 'channel': 1})
+
+
 def test_live_state_follows_the_hub(monkeypatch):
     monkeypatch.setattr(events, 'HUB', None)
     assert urls.live_state(['sitio']) == {'sitio': {'online': False, 'motion': [], 'loss': [], 'tamper': [], 'smart': []}}
