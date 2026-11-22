@@ -2,7 +2,7 @@
 
 ## 1.6.0
 
-- Interface web: ao clicar em uma câmera de um gravador com gerenciamento, o botão **Configurações de vídeo e áudio** lê e altera codec, resolução, quadros por segundo, controle de bitrate, bitrate, qualidade, intervalo de quadros-chave e áudio do stream principal e do secundário. Ainda não testado em um gravador real.
+- Interface web: ao clicar em uma câmera de um gravador com gerenciamento, o botão **Configurações de vídeo e áudio** lê e altera codec, resolução, quadros por segundo, controle de bitrate, bitrate, qualidade, intervalo de quadros-chave e áudio do stream principal e do secundário. Testado no stream secundário do MHDX 1116 e do MHDX 3116-C.
 
 ## 1.5.0
 

@@ -180,7 +180,7 @@ Sobre as configurações de vídeo e áudio:
 
 - Codecs, resoluções e limites de bitrate são os que o gravador informa para aquele canal; os demais campos usam as faixas usuais desses gravadores. Um campo acinzentado é um valor que o gravador mostrou sem dizer o que aceita, e por isso não pode ser alterado por aqui.
 - Resoluções que o gravador lista por um nome que o add-on não conhece aparecem em uma nota abaixo do campo, e continuam ajustáveis apenas no próprio gravador.
-- **Salvar** pede confirmação, grava de uma vez só as alterações daquele stream e mostra de volta o que o gravador confirmou; ele pode ajustar outros valores por conta própria, como o bitrate ao trocar a resolução. Se o gravador responder que salvou mas guardar outro valor, a página avisa quais campos ele não aplicou.
+- **Salvar** pede confirmação, grava de uma vez só as alterações daquele stream e mostra de volta o que o gravador confirmou; ele pode ajustar outros valores por conta própria, como o intervalo de quadros-chave ao baixar os quadros por segundo. Se o gravador responder que salvou mas guardar outro valor, a página avisa quais campos ele não aplicou.
 - Ao salvar, o vídeo do canal pode reiniciar. Se mudar o codec ou a resolução, confira a configuração do Frigate (por exemplo, a resolução de `detect`). O stream secundário do primeiro canal é o que mantém a conexão com o gravador ativa.
 
 **Aba Gravações**
@@ -205,7 +205,9 @@ O que cada função alcança depende do modelo, do firmware e das permissões do
 | Estado do DVR e nome do canal | Funciona | Funciona |
 | Busca e reprodução de gravações | Funciona | Não funciona |
 | Salvar nome e PTZ | Não testado | Não testado |
-| Configurações de vídeo e áudio | Não testado | Não testado |
+| Configurações de vídeo e áudio: leitura dos dois streams | Funciona | Funciona |
+| Configurações de vídeo e áudio: alterar resolução, quadros por segundo, bitrate e quadros-chave do stream secundário | Funciona | Funciona |
+| Configurações de vídeo e áudio: alterar o stream principal, o codec e o áudio | Não testado | Não testado |
 
 ## Mensagens do log
 
